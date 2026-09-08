@@ -10,7 +10,7 @@
  * (KubeJsonApi.forCluster), so they carry whatever auth the kubeconfig has.
  */
 
-import { Renderer } from "@freelensapp/extensions";
+import { Common, Renderer } from "@freelensapp/extensions";
 import { aggregateByGPU, aggregateByPod, buildEnricherRows, extractDcgmSamples } from "./aggregate";
 import { classifyMetrics, parsePrometheusText } from "./prom";
 import type { ExporterPod, PodGPU, Snapshot } from "./types";
@@ -66,23 +66,58 @@ const defaultDeps: ScraperDeps = {
   clusterId: () => Renderer.Catalog.getActiveCluster()?.id ?? Renderer.Catalog.activeCluster.get()?.getId(),
   listPods: async () => (await Renderer.K8sApi.podsApi.list()) ?? [],
   fetchText: async (clusterId, path, timeoutMs) => {
-    const api = Renderer.K8sApi.KubeJsonApi.forCluster(clusterId);
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const body = await api.get<unknown>(path, undefined, { signal: ctrl.signal });
-      return typeof body === "string" ? body : JSON.stringify(body);
+      // Preferred: Freelens' own per-cluster JSON API (auth, proxy, host header handled).
+      try {
+        const api = Renderer.K8sApi.KubeJsonApi.forCluster(clusterId);
+        const body = await api.get<unknown>(path, undefined, { signal: ctrl.signal });
+        return typeof body === "string" ? body : JSON.stringify(body);
+      } catch (e) {
+        log.warn(`KubeJsonApi.forCluster GET ${path} failed, trying relative /api-kube: ${describe(e)}`);
+      }
+      // Fallback: inside a cluster frame the window origin IS the Lens proxy for
+      // this cluster, and /api-kube/* is forwarded to the kube-apiserver.
+      const res = await fetch(`/api-kube${path}`, { signal: ctrl.signal, credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for /api-kube${path}`);
+      return await res.text();
     } finally {
       clearTimeout(t);
     }
   },
 };
 
+const log = {
+  info: (m: string) => Common.logger.info(`[freelens-gpu-extension] ${m}`),
+  warn: (m: string) => Common.logger.warn(`[freelens-gpu-extension] ${m}`),
+};
+
+function describe(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+export interface ProbeResult {
+  target: string;
+  outcome: "dcgm" | "enricher" | "unrecognised" | "error";
+  detail?: string;
+}
+
 export class GpuScraper {
   private discovered: ExporterPod[] = [];
   private discoveredAt = 0;
   /** Pods requesting nvidia.com/gpu grouped by node, refreshed with discovery. */
   private gpuPodsByNode = new Map<string, string[]>();
+  /** Outcome of the last discovery pass, for diagnostics in the UI and logs. */
+  lastProbes: ProbeResult[] = [];
+  lastCandidateCount = 0;
+  lastPodCount = 0;
 
   constructor(private readonly deps: ScraperDeps = defaultDeps) {}
 
@@ -105,6 +140,7 @@ export class GpuScraper {
     if (!clusterId) throw new Error("no active cluster");
 
     const pods = await this.deps.listPods();
+    this.lastPodCount = pods.length;
     const byNode = new Map<string, string[]>();
     for (const p of pods) {
       if (p.getStatusPhase() === "Running" && requestsGpu(p)) {
@@ -125,20 +161,33 @@ export class GpuScraper {
             .map((p) => ({ ns: p.getNs(), name: p.getName(), port: metricsPort(p), node: p.getNodeName() ?? "" }))
             .filter((c) => c.port > 0);
 
+    this.lastCandidateCount = candidates.length;
+    const probes: ProbeResult[] = [];
     const probed = await Promise.all(
       candidates.map(async (c): Promise<ExporterPod | undefined> => {
+        const target = `${c.ns}/${c.name}:${c.port}`;
         try {
           const text = await this.deps.fetchText(clusterId, metricsPath(c.ns, c.name, c.port), PROBE_TIMEOUT_MS);
           const kind = classifyMetrics(text);
-          if (!kind) return undefined;
+          if (!kind) {
+            probes.push({ target, outcome: "unrecognised", detail: `${text.length} bytes, first line: ${text.split("\n")[0]?.slice(0, 80)}` });
+            return undefined;
+          }
+          probes.push({ target, outcome: kind });
           return { namespace: c.ns, name: c.name, port: c.port, nodeName: c.node, kind };
-        } catch {
+        } catch (e) {
+          probes.push({ target, outcome: "error", detail: describe(e) });
           return undefined;
         }
       }),
     );
+    this.lastProbes = probes;
     this.discovered = probed.filter((x): x is ExporterPod => !!x);
     this.discoveredAt = Date.now();
+    log.info(
+      `discovery: ${pods.length} pods, ${candidates.length} candidates, ${this.discovered.length} exporters; ` +
+        probes.map((p) => `${p.target}=${p.outcome}${p.detail ? ` (${p.detail})` : ""}`).join("; "),
+    );
     return this.discovered;
   }
 
@@ -147,9 +196,15 @@ export class GpuScraper {
     const clusterId = this.deps.clusterId();
     if (!clusterId) throw new Error("no active cluster");
     if (exporters.length === 0) {
-      throw new Error(
-        "No GPU metrics exporter found: no running pod's /metrics emitted DCGM_FI_DEV_* or gpu_process_memory_bytes.",
-      );
+      const lines = [
+        `No GPU metrics exporter found (${this.lastPodCount} pods listed, ${this.lastCandidateCount} GPU-looking candidates probed).`,
+        "An exporter is recognised when its /metrics emits DCGM_FI_DEV_* or gpu_process_memory_bytes.",
+        ...this.lastProbes.map((p) => `  ${p.target}: ${p.outcome}${p.detail ? ` — ${p.detail}` : ""}`),
+      ];
+      if (this.lastCandidateCount === 0 && this.lastPodCount === 0) {
+        lines.push("  (no pods returned at all — check that this kubeconfig can list pods cluster-wide)");
+      }
+      throw new Error(lines.join("\n"));
     }
 
     const bodies = await Promise.all(
