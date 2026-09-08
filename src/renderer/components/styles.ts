@@ -4,6 +4,7 @@ export const gpuStyles = `
 .gpuext-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .gpuext-header { display: flex; align-items: center; gap: var(--padding); margin-bottom: var(--padding); }
 .gpuext-header h2 { margin: 0; font-weight: 500; flex: 1; }
+.gpuext-version { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; vertical-align: middle; background: var(--borderFaintColor); color: var(--textColorSecondary); font-family: var(--font-monospace, monospace); }
 .gpuext-status { color: var(--textColorSecondary); font-size: 12px; }
 .gpuext-error { color: var(--colorError); margin: var(--padding) 0; white-space: pre-wrap; }
 .gpuext-hint { color: var(--textColorSecondary); font-size: 12px; margin: var(--padding) 0; }

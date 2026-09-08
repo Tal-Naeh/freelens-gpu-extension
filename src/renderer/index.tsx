@@ -9,7 +9,7 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
     {
       id: "gpu",
       components: {
-        Page: () => <GpuPage />,
+        Page: () => <GpuPage extension={this} />,
       },
     },
   ];

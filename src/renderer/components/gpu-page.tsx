@@ -7,7 +7,11 @@ import { gpuStyles } from "./styles";
 
 const { Button, Spinner } = Renderer.Component;
 
-export const GpuPage = observer(() => {
+export interface GpuPageProps {
+  extension: Renderer.LensExtension;
+}
+
+export const GpuPage = observer(({ extension }: GpuPageProps) => {
   React.useEffect(() => gpuStore.subscribe(), []);
   const snap = gpuStore.snapshot;
   const rows = gpuStore.rows;
@@ -16,7 +20,9 @@ export const GpuPage = observer(() => {
     <div className="gpuext-page">
       <style>{gpuStyles}</style>
       <div className="gpuext-header">
-        <h2>GPU usage by pod</h2>
+        <h2>
+          GPU usage by pod <span className="gpuext-version">v{extension.version}</span>
+        </h2>
         <span className="gpuext-status">
           {snap
             ? `${snap.exporters.length} exporter${snap.exporters.length === 1 ? "" : "s"} (${[...new Set(snap.exporters.map((e) => e.kind))].join(", ")}) · last scrape ${snap.scrapedAt.toLocaleTimeString()}`
