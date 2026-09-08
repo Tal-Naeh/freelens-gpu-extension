@@ -32,11 +32,69 @@ export interface PodGPU {
 
 export type Mode = "pod" | "gpu";
 
+/** One physical GPU, or one MIG slice when the card is partitioned. */
+export interface GpuDevice {
+  node: string;
+  /** "0", or "0:8" for MIG slice 8 of card 0. */
+  gpu: string;
+  uuid?: string;
+  model?: string;
+  migProfile?: string;
+  utilPct: number;
+  vramUsedMiB: number;
+  vramTotalMiB: number;
+  powerWatts: number;
+  tempC?: number;
+  /** Workload pods seen on this device ("ns/pod"). */
+  pods: string[];
+}
+
+export interface ExporterScrape extends ExporterPod {
+  /** Round-trip of the last scrape in ms. */
+  latencyMs?: number;
+  bytes?: number;
+  error?: string;
+}
+
 export interface Snapshot {
   scrapedAt: Date;
   mode: Mode;
   rows: PodGPU[];
-  exporters: ExporterPod[];
+  gpus: GpuDevice[];
+  exporters: ExporterScrape[];
+  /** nvidia.com/gpu requested (sum of container limits, falling back to requests) by node, from the pod list. */
+  requestedByNode: Record<string, { gpus: number; pods: string[] }>;
+}
+
+export interface HistoryPoint {
+  t: number;
+  utilPct: number;
+  vramUsedMiB: number;
+}
+
+export interface IdleRow extends PodGPU {
+  /** Minutes the pod has been observed idle (util below threshold) in this session. */
+  idleMinutes: number;
+  /** Number of samples backing idleMinutes. */
+  samples: number;
+  /** Peak utilisation seen in the window. */
+  peakUtilPct: number;
+}
+
+export interface AllocationRow {
+  node: string;
+  gpuType?: string;
+  capacity: number;
+  allocatable: number;
+  requested: number;
+  requestingPods: string[];
+  /** Devices reporting on this node (0 if no exporter covers it). */
+  devices: number;
+  busyDevices: number;
+  avgUtilPct: number;
+  vramUsedMiB: number;
+  vramTotalMiB: number;
+  powerWatts: number;
 }
 
 export const isFallback = (r: PodGPU): boolean => !!r.gpuIndex;

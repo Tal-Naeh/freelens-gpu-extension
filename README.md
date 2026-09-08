@@ -8,10 +8,22 @@ It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubec
 
 ## What you get
 
-- **GPU** entry in the cluster sidebar: a table of every GPU-holding pod, sorted by physical GPU (MIG slices grouped under their card), with a utilisation bar, VRAM used/total and power.
+A **GPU** group in the cluster sidebar with five views, all fed by the same 20 s scrape:
+
+| View | Question it answers |
+|------|---------------------|
+| **Pods** | Which pods hold GPUs right now, on which card / MIG slice, at what utilisation, VRAM and power. Sorted by physical GPU so pile-ups are obvious. |
+| **GPUs** | One row per physical GPU or MIG slice: model, MIG profile, utilisation, VRAM used / total / %, power, temperature, and the pods sharing it. Cards with no pod are listed too. |
+| **Idle & waste** | Pods holding VRAM at under 5 % utilisation, with how long they have been idle (history kept while Freelens is open). The first place to look before buying more GPUs. |
+| **Allocation** | Per node: `nvidia.com/gpu` capacity and allocatable vs what running pods request vs what the exporters actually measure as busy. Shows scheduler view and reality side by side. |
+| **Exporters** | What discovery found: each exporter's kind, node, scrape latency and body size, plus every candidate probed and why it was or wasn't accepted. |
+
+Every table sorts on header click, resizes by dragging the header edge (double-click resets, widths are remembered), keeps its header visible while scrolling, and shows the full text of a truncated cell on hover.
+
+Also:
 - **Pod details drawer**: a GPU section for pods that hold a GPU (silent for the rest).
-- **Node details drawer**: every GPU row on that node.
-- Refreshes every 20 s while a GPU view is open; manual Refresh re-runs discovery.
+- **Node details drawer**: device summary (count, model, VRAM, power, max temperature) plus every GPU row on that node.
+- The page title carries the extension version so you always know what you are looking at.
 
 | Column     | Meaning                                                                                   |
 |------------|-------------------------------------------------------------------------------------------|

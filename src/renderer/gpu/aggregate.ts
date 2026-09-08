@@ -10,7 +10,7 @@
  */
 
 import type { Families, Sample } from "./prom";
-import type { PodGPU } from "./types";
+import type { GpuDevice, PodGPU } from "./types";
 
 export interface FlatSample {
   ns: string;
@@ -30,6 +30,8 @@ const WANTED_DCGM = [
   // DCGM_FI_DEV_GPU_UTIL entirely, so this stands in as util on MIG.
   "DCGM_FI_PROF_GR_ENGINE_ACTIVE",
 ];
+
+const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL"];
 
 /** DCGM: flatten wanted families into (ns, pod, gpu, node, metric, value). */
 export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSample[] {
@@ -289,4 +291,171 @@ export function physicalGPUGroup(r: PodGPU): string {
   const first = r.gpus[0];
   const i = first.indexOf(":");
   return i >= 0 ? first.slice(0, i) : r.gpus.join(",");
+}
+
+
+// ---------------------------------------------------------------------------
+// Per-device view (one row per physical GPU / MIG slice)
+// ---------------------------------------------------------------------------
+
+interface DevAcc {
+  dev: GpuDevice;
+  utilSum: number;
+  utilN: number;
+  fbTotal?: number;
+  pods: Set<string>;
+}
+
+function devKey(node: string, gpu: string) {
+  return `${node}/${gpu}`;
+}
+
+function newDev(node: string, gpu: string): DevAcc {
+  return {
+    dev: { node, gpu, utilPct: 0, vramUsedMiB: 0, vramTotalMiB: 0, powerWatts: 0, pods: [] },
+    utilSum: 0,
+    utilN: 0,
+    pods: new Set(),
+  };
+}
+
+/**
+ * DCGM: every metric line is already per device (per slice on MIG), and the
+ * same device appears once per attributed pod when several pods share it.
+ * Take gauges as-is (not summed) and collect the pod set.
+ */
+export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuDevice[] {
+  const accs = new Map<string, DevAcc>();
+  for (const name of DEVICE_DCGM) {
+    for (const m of fams.get(name) ?? []) {
+      const l = m.labels;
+      let gpu = l.gpu || l.device || l.UUID || "?";
+      if (l.GPU_I_ID) gpu = `${gpu}:${l.GPU_I_ID}`;
+      const node = l.Hostname || exporterNode;
+      const k = devKey(node, gpu);
+      let acc = accs.get(k);
+      if (!acc) {
+        acc = newDev(node, gpu);
+        accs.set(k, acc);
+      }
+      const d = acc.dev;
+      if (l.UUID && !d.uuid) d.uuid = l.UUID;
+      if (l.modelName && !d.model) d.model = l.modelName;
+      if (l.GPU_I_PROFILE && !d.migProfile) d.migProfile = l.GPU_I_PROFILE;
+      const ns = l.namespace || l.exported_namespace;
+      const pod = l.pod || l.exported_pod;
+      if (ns && pod) acc.pods.add(`${ns}/${pod}`);
+      // Gauges repeat per pod label set; keep the max rather than summing.
+      switch (name) {
+        case "DCGM_FI_DEV_GPU_UTIL":
+          d.utilPct = Math.max(d.utilPct, m.value);
+          break;
+        case "DCGM_FI_PROF_GR_ENGINE_ACTIVE":
+          d.utilPct = Math.max(d.utilPct, m.value * 100);
+          break;
+        case "DCGM_FI_DEV_FB_USED":
+          d.vramUsedMiB = Math.max(d.vramUsedMiB, m.value);
+          break;
+        case "DCGM_FI_DEV_FB_FREE":
+          acc.fbTotal = Math.max(acc.fbTotal ?? 0, m.value); // temporarily holds FREE
+          break;
+        case "DCGM_FI_DEV_FB_TOTAL":
+          d.vramTotalMiB = Math.max(d.vramTotalMiB, m.value);
+          break;
+        case "DCGM_FI_DEV_POWER_USAGE":
+          d.powerWatts = Math.max(d.powerWatts, m.value);
+          break;
+        case "DCGM_FI_DEV_GPU_TEMP":
+          d.tempC = Math.max(d.tempC ?? 0, m.value);
+          break;
+      }
+    }
+  }
+  const out: GpuDevice[] = [];
+  for (const acc of accs.values()) {
+    if (acc.dev.vramTotalMiB === 0) acc.dev.vramTotalMiB = acc.dev.vramUsedMiB + (acc.fbTotal ?? 0);
+    acc.dev.pods = [...acc.pods].sort();
+    out.push(acc.dev);
+  }
+  return out;
+}
+
+/**
+ * Per-process exporter: device totals come from gpu_total_* / gpu_power_*
+ * (per uuid), usage is the sum of process memory, util is the device-level
+ * gauge when present, else the max process util.
+ */
+export function aggregateDevicesEnricher(results: EnricherResult[]): GpuDevice[] {
+  const byUuid = new Map<string, DevAcc & { procUtilMax: number; hasTotalUtil: boolean }>();
+  const get = (uuid: string, node: string, gpu: string, model?: string) => {
+    let a = byUuid.get(uuid);
+    if (!a) {
+      a = { ...newDev(node, gpu || "?"), procUtilMax: 0, hasTotalUtil: false };
+      a.dev.uuid = uuid;
+      byUuid.set(uuid, a);
+    }
+    if (model && !a.dev.model) a.dev.model = model;
+    if (a.dev.gpu === "?" && gpu) a.dev.gpu = gpu;
+    return a;
+  };
+  const MIB = 1024 * 1024;
+  for (const r of results) {
+    for (const m of r.fams.get("gpu_process_memory_bytes") ?? []) {
+      const { uuid, gpu = "", model, namespace, pod } = m.labels;
+      if (!uuid) continue;
+      const a = get(uuid, r.node, gpu, model);
+      a.dev.vramUsedMiB += m.value / MIB;
+      if (namespace && pod) a.pods.add(`${namespace}/${pod}`);
+    }
+    for (const m of r.fams.get("gpu_process_utilization_percent") ?? []) {
+      const { uuid, gpu = "", model } = m.labels;
+      if (!uuid) continue;
+      const a = get(uuid, r.node, gpu, model);
+      a.procUtilMax = Math.max(a.procUtilMax, m.value);
+    }
+    for (const m of r.fams.get("gpu_total_memory_bytes") ?? []) {
+      const { uuid, gpu = "", model } = m.labels;
+      if (!uuid) continue;
+      get(uuid, r.node, gpu, model).dev.vramTotalMiB = m.value / MIB;
+    }
+    for (const m of r.fams.get("gpu_total_utilization_percent") ?? []) {
+      const { uuid, gpu = "", model } = m.labels;
+      if (!uuid) continue;
+      const a = get(uuid, r.node, gpu, model);
+      a.dev.utilPct = m.value;
+      a.hasTotalUtil = true;
+    }
+    for (const m of r.fams.get("gpu_power_usage_watts") ?? []) {
+      const { uuid, gpu = "", model } = m.labels;
+      if (!uuid) continue;
+      get(uuid, r.node, gpu, model).dev.powerWatts = m.value;
+    }
+    for (const m of r.fams.get("gpu_temperature_celsius") ?? []) {
+      const { uuid, gpu = "", model } = m.labels;
+      if (!uuid) continue;
+      get(uuid, r.node, gpu, model).dev.tempC = m.value;
+    }
+  }
+  const out: GpuDevice[] = [];
+  for (const a of byUuid.values()) {
+    if (!a.hasTotalUtil) a.dev.utilPct = a.procUtilMax;
+    a.dev.pods = [...a.pods].sort();
+    out.push(a.dev);
+  }
+  return out;
+}
+
+/** Display order for devices: node, then GPU index (MIG slices under their card). */
+export function sortDevices(devs: GpuDevice[]): GpuDevice[] {
+  const key = (d: GpuDevice) =>
+    d.gpu
+      .split(":")
+      .map((p) => p.padStart(3, "0"))
+      .join(":");
+  return [...devs].sort((a, b) => {
+    if (a.node !== b.node) return a.node < b.node ? -1 : 1;
+    const ka = key(a);
+    const kb = key(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
 }

@@ -11,9 +11,16 @@
  */
 
 import { Common, Renderer } from "@freelensapp/extensions";
-import { aggregateByGPU, aggregateByPod, buildEnricherRows, extractDcgmSamples } from "./aggregate";
+import {
+  aggregateByGPU,
+  aggregateByPod,
+  aggregateDevicesDcgm,
+  aggregateDevicesEnricher,
+  buildEnricherRows,
+  extractDcgmSamples,
+} from "./aggregate";
 import { classifyMetrics, parsePrometheusText } from "./prom";
-import type { ExporterPod, PodGPU, Snapshot } from "./types";
+import type { ExporterPod, ExporterScrape, GpuDevice, PodGPU, Snapshot } from "./types";
 
 type Pod = Renderer.K8sApi.Pod;
 
@@ -47,13 +54,20 @@ function metricsPort(pod: Pod): number {
   return ports[0]?.containerPort ?? 0;
 }
 
-function requestsGpu(pod: Pod): boolean {
-  return pod.getContainers().some((c) => {
+/** nvidia.com/gpu requested by a pod: sum of container limits, falling back to requests. */
+function gpusRequested(pod: Pod): number {
+  let n = 0;
+  for (const c of pod.getContainers()) {
     const r = c.resources ?? {};
     const lim = (r.limits as Record<string, string> | undefined)?.["nvidia.com/gpu"];
     const req = (r.requests as Record<string, string> | undefined)?.["nvidia.com/gpu"];
-    return Number(lim ?? 0) > 0 || Number(req ?? 0) > 0;
-  });
+    n += Number(lim ?? req ?? 0) || 0;
+  }
+  return n;
+}
+
+function requestsGpu(pod: Pod): boolean {
+  return gpusRequested(pod) > 0;
 }
 
 export interface ScraperDeps {
@@ -121,6 +135,7 @@ export class GpuScraper {
   private discoveredAt = 0;
   /** Pods requesting nvidia.com/gpu grouped by node, refreshed with discovery. */
   private gpuPodsByNode = new Map<string, string[]>();
+  private requestedByNode: Record<string, { gpus: number; pods: string[] }> = {};
   /** Outcome of the last discovery pass, for diagnostics in the UI and logs. */
   lastProbes: ProbeResult[] = [];
   lastCandidateCount = 0;
@@ -149,13 +164,19 @@ export class GpuScraper {
     const pods = await this.deps.listPods();
     this.lastPodCount = pods.length;
     const byNode = new Map<string, string[]>();
+    const requested: Record<string, { gpus: number; pods: string[] }> = {};
     for (const p of pods) {
       if (p.getStatusPhase() === "Running" && requestsGpu(p)) {
         const n = p.getNodeName() ?? "";
-        byNode.set(n, [...(byNode.get(n) ?? []), `${p.getNs()}/${p.getName()}`]);
+        const id = `${p.getNs()}/${p.getName()}`;
+        byNode.set(n, [...(byNode.get(n) ?? []), id]);
+        const r = (requested[n] ??= { gpus: 0, pods: [] });
+        r.gpus += gpusRequested(p);
+        r.pods.push(id);
       }
     }
     this.gpuPodsByNode = byNode;
+    this.requestedByNode = requested;
 
     const candidates =
       this.explicit.length > 0
@@ -214,15 +235,27 @@ export class GpuScraper {
       throw new Error(lines.join("\n"));
     }
 
+    const scraped: ExporterScrape[] = [];
     const bodies = await Promise.all(
       exporters.map(async (ex) => {
-        const text = await this.deps.fetchText(clusterId, metricsPath(ex.namespace, ex.name, ex.port), SCRAPE_TIMEOUT_MS);
-        return { ex, fams: parsePrometheusText(text) };
+        const t0 = performance.now();
+        try {
+          const text = await this.deps.fetchText(clusterId, metricsPath(ex.namespace, ex.name, ex.port), SCRAPE_TIMEOUT_MS);
+          scraped.push({ ...ex, latencyMs: Math.round(performance.now() - t0), bytes: text.length });
+          return { ex, fams: parsePrometheusText(text) };
+        } catch (e) {
+          scraped.push({ ...ex, latencyMs: Math.round(performance.now() - t0), error: describe(e) });
+          return undefined;
+        }
       }),
     );
+    const ok = bodies.filter((b): b is NonNullable<typeof b> => !!b);
+    if (ok.length === 0) {
+      throw new Error(`All ${exporters.length} exporter scrapes failed: ${scraped.map((s) => `${s.namespace}/${s.name}: ${s.error}`).join("; ")}`);
+    }
 
-    const enrichers = bodies.filter((b) => b.ex.kind === "enricher");
-    const dcgms = bodies.filter((b) => b.ex.kind === "dcgm");
+    const enrichers = ok.filter((b) => b.ex.kind === "enricher");
+    const dcgms = ok.filter((b) => b.ex.kind === "dcgm");
 
     let rows: PodGPU[] = [];
     let mode: Snapshot["mode"] = "pod";
@@ -237,6 +270,16 @@ export class GpuScraper {
         if (rows.length > 0) mode = "gpu";
       }
     }
-    return { scrapedAt: new Date(), mode, rows, exporters };
+
+    // Devices: prefer DCGM (true device gauges); use the per-process exporter
+    // for nodes DCGM does not cover.
+    let gpus: GpuDevice[] = dcgms.flatMap((b) => aggregateDevicesDcgm(b.fams, b.ex.nodeName));
+    if (enrichers.length > 0) {
+      const covered = new Set(gpus.map((d) => d.node));
+      const fromEnricher = aggregateDevicesEnricher(enrichers.map((b) => ({ fams: b.fams, node: b.ex.nodeName })));
+      gpus = gpus.concat(fromEnricher.filter((d) => !covered.has(d.node)));
+    }
+
+    return { scrapedAt: new Date(), mode, rows, gpus, exporters: scraped, requestedByNode: this.requestedByNode };
   }
 }

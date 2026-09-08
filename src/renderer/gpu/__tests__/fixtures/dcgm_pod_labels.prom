@@ -22,3 +22,9 @@ DCGM_FI_DEV_POWER_USAGE{gpu="0",UUID="GPU-aaaa",device="nvidia0",Hostname="node-
 DCGM_FI_DEV_POWER_USAGE{gpu="1",UUID="GPU-bbbb",device="nvidia1",Hostname="node-a",container="vllm",namespace="ml",pod="vllm-0"} 200.5
 DCGM_FI_DEV_POWER_USAGE{gpu="2",UUID="GPU-cccc",device="nvidia2",Hostname="node-a",container="tei",namespace="embeddings",pod="tei-7d9f-x1"} 88
 DCGM_FI_DEV_POWER_USAGE{gpu="3",UUID="GPU-dddd",device="nvidia3",Hostname="node-a",container="",namespace="",pod=""} 55
+# HELP DCGM_FI_DEV_GPU_TEMP GPU temperature (in C).
+# TYPE DCGM_FI_DEV_GPU_TEMP gauge
+DCGM_FI_DEV_GPU_TEMP{gpu="0",UUID="GPU-aaaa",device="nvidia0",modelName="NVIDIA A100-SXM4-80GB",Hostname="node-a",container="vllm",namespace="ml",pod="vllm-0"} 71
+DCGM_FI_DEV_GPU_TEMP{gpu="1",UUID="GPU-bbbb",device="nvidia1",modelName="NVIDIA A100-SXM4-80GB",Hostname="node-a",container="vllm",namespace="ml",pod="vllm-0"} 64
+DCGM_FI_DEV_GPU_TEMP{gpu="2",UUID="GPU-cccc",device="nvidia2",modelName="NVIDIA A100-SXM4-80GB",Hostname="node-a",container="tei",namespace="embeddings",pod="tei-7d9f-x1"} 45
+DCGM_FI_DEV_GPU_TEMP{gpu="3",UUID="GPU-dddd",device="nvidia3",modelName="NVIDIA A100-SXM4-80GB",Hostname="node-a",container="",namespace="",pod=""} 33
