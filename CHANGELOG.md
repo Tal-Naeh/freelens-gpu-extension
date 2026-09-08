@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Fix: LICENSE copyright holder.
+- Docs: README Features and Usage sections; repo homepage points at the npm page.
+
 ## 0.3.0
 
 First published release, as `@tal-naeh/freelens-gpu-extension` on npm.

@@ -9,9 +9,27 @@ Zero cluster footprint. The extension auto-discovers a GPU metrics exporter you 
 
 It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubectl-gpugo) (`kubectl krew install gpugo`) and shares its attribution rules and data model, so both tools show the same numbers.
 
-## What you get
+## Features
 
-A **GPU** group in the cluster sidebar with five views, all fed by the same 20 s scrape:
+- **Autodiscovery** — lists pods, keeps Running ones whose name, image or labels mention `dcgm`, `gpu`, `nvidia` or
+  `cuda`, probes each `/metrics` and classifies by content: NVIDIA **dcgm-exporter** (`DCGM_FI_DEV_*`) or a
+  **per-process exporter** (`gpu_process_memory_bytes`). Nothing to configure, nothing to deploy.
+- **Zero cluster footprint** — reads `/metrics` through the kube-apiserver pod-proxy subresource over Freelens' own
+  cluster connection. No DaemonSet, no Prometheus, no port-forward, no RBAC beyond `list pods`, `list nodes`,
+  `get pods/proxy`.
+- **Correct attribution** — per pod when the exporter carries pod labels; per MIG slice on partitioned cards (rows
+  grouped under their physical GPU); per process when workloads bypass the device plugin with
+  `NVIDIA_VISIBLE_DEVICES=all`; graceful per-(node, GPU) fallback with candidate pods otherwise. Same rules as
+  [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubectl-gpugo), so CLI and GUI agree.
+- **Five views** under a **GPU** sidebar group (below), plus GPU sections in the Pod and Node detail drawers.
+- **Tables that behave** — click a header to sort, drag its right edge to resize (double-click resets, widths are
+  remembered), sticky header while scrolling, full text on hover.
+- **Honest numbers** — device gauges are never double-counted, power on shared GPUs is split by VRAM share, and the
+  version badge in every title tells you which build you are looking at.
+
+## Views
+
+All five are fed by the same 20 s scrape:
 
 | View | Question it answers |
 | --- | --- |
@@ -57,6 +75,17 @@ window, or paste its absolute path on the Extensions page. After an upgrade, ful
 shows the loaded version.
 
 Requires Freelens ≥ 1.8 (developed and verified against 1.10.3).
+
+## Usage
+
+1. Connect to a cluster in Freelens. A **GPU** group appears in the sidebar.
+2. **Pods** shows every GPU-holding pod; click a header to sort, drag to resize.
+3. **GPUs** shows each card / MIG slice with the pods sharing it. **Idle & waste** lists pods holding VRAM at ~0 %
+   utilisation and how long they have been idle. **Allocation** compares `nvidia.com/gpu` capacity, pod requests and
+   measured busy devices per node.
+4. Open any Pod or Node: a **GPU** section appears in its details drawer when the object holds a GPU.
+5. Nothing found? **Exporters** lists every candidate pod that was probed and why it was or wasn't accepted.
+   **Refresh** re-runs discovery.
 
 ## Development
 
