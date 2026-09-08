@@ -32,23 +32,25 @@ export const GpuPage = observer(() => {
 
       {gpuStore.error && <div className="gpuext-error">{gpuStore.error}</div>}
 
-      {snap && rows.length === 0 && !gpuStore.error && (
-        <div className="gpuext-empty">Exporters found, but no GPU metrics were returned.</div>
-      )}
+      <div className="gpuext-body">
+        {snap && rows.length === 0 && !gpuStore.error && (
+          <div className="gpuext-empty">Exporters found, but no GPU metrics were returned.</div>
+        )}
 
-      {rows.length > 0 && <GpuTable rows={rows} />}
+        {rows.length > 0 && <GpuTable rows={rows} />}
 
-      {snap?.mode === "gpu" && (
-        <div className="gpuext-hint">
-          dcgm-exporter is not emitting pod labels, so rows are per (node, GPU). The arrow lists pods on that node
-          requesting <code>nvidia.com/gpu</code>. Enable <code>--kubernetes</code> on dcgm-exporter for per-pod
-          attribution.
-        </div>
-      )}
+        {snap?.mode === "gpu" && (
+          <div className="gpuext-hint">
+            dcgm-exporter is not emitting pod labels, so rows are per (node, GPU). The arrow lists pods on that node
+            requesting <code>nvidia.com/gpu</code>. Enable <code>--kubernetes</code> on dcgm-exporter for per-pod
+            attribution.
+          </div>
+        )}
 
-      {!snap && !gpuStore.loading && !gpuStore.error && (
-        <div className="gpuext-empty">Waiting for the first scrape…</div>
-      )}
+        {!snap && !gpuStore.loading && !gpuStore.error && (
+          <div className="gpuext-empty">Waiting for the first scrape…</div>
+        )}
+      </div>
     </div>
   );
 });

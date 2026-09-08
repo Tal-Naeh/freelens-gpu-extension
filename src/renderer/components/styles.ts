@@ -1,17 +1,23 @@
 /** Inline stylesheet, injected once per page. Uses Freelens theme variables. */
 export const gpuStyles = `
-.gpuext-page { padding: calc(var(--padding) * 2); color: var(--textColorPrimary); }
+.gpuext-page { display: flex; flex-direction: column; height: 100%; min-height: 0; box-sizing: border-box; padding: calc(var(--padding) * 2); color: var(--textColorPrimary); }
+.gpuext-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .gpuext-header { display: flex; align-items: center; gap: var(--padding); margin-bottom: var(--padding); }
 .gpuext-header h2 { margin: 0; font-weight: 500; flex: 1; }
 .gpuext-status { color: var(--textColorSecondary); font-size: 12px; }
 .gpuext-error { color: var(--colorError); margin: var(--padding) 0; white-space: pre-wrap; }
 .gpuext-hint { color: var(--textColorSecondary); font-size: 12px; margin: var(--padding) 0; }
-.gpuext-grid { display: grid; width: 100%; font-size: 13px; align-items: center; }
-.gpuext-grid.full { grid-template-columns: minmax(90px, 0.8fr) minmax(200px, 2.4fr) minmax(120px, 1fr) minmax(70px, auto) 175px 100px 100px 80px; }
-.gpuext-grid.compact { grid-template-columns: minmax(70px, auto) 175px 100px 100px 80px; }
+.gpuext-grid { display: grid; width: max-content; min-width: 100%; font-size: 13px; align-items: center; }
 .gpuext-row { display: contents; }
-.gpuext-cell { padding: 6px 10px; border-bottom: 1px solid var(--borderFaintColor); white-space: nowrap; min-width: 0; line-height: 20px; }
-.gpuext-head .gpuext-cell { font-weight: 500; color: var(--textColorSecondary); border-bottom: 1px solid var(--borderColor); }
+.gpuext-cell { padding: 6px 10px; border-bottom: 1px solid var(--borderFaintColor); white-space: nowrap; min-width: 0; line-height: 20px; box-sizing: border-box; }
+.gpuext-head .gpuext-cell { position: sticky; top: 0; z-index: 1; background: var(--contentColor); font-weight: 500; color: var(--textColorSecondary); border-bottom: 1px solid var(--borderColor); }
+.gpuext-th { position: relative; cursor: pointer; user-select: none; padding-right: 14px; }
+.gpuext-th:hover { color: var(--textColorPrimary); }
+.gpuext-th.sorted { color: var(--textColorPrimary); }
+.gpuext-th-label { overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; }
+.gpuext-sort { margin-left: 4px; font-size: 9px; vertical-align: middle; }
+.gpuext-resize { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; }
+.gpuext-resize:hover, .gpuext-resize:active { background: var(--borderColor); }
 .gpuext-sep .gpuext-cell { border-top: 2px solid var(--borderColor); }
 .gpuext-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
 .gpuext-cell.ellipsis { overflow: hidden; text-overflow: ellipsis; }

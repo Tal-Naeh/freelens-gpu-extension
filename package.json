@@ -1,6 +1,6 @@
 {
   "name": "freelens-gpu-extension",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Per-pod GPU usage (utilisation, VRAM, power) for Freelens, scraped from dcgm-exporter or any per-process GPU exporter through the apiserver pod-proxy. Zero cluster footprint.",
   "homepage": "https://github.com/Tal-Naeh/freelens-gpu-extension",
   "repository": {
