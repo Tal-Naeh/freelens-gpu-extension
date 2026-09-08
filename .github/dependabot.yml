@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      freelens:
+        patterns: ["@freelensapp/*"]
+      build:
+        patterns: ["vite", "electron-vite", "vitest", "@vitejs/*", "typescript", "@babel/*", "@electron-toolkit/*", "@types/*"]
+    ignore:
+      # Pinned to what the Freelens host provides at runtime.
+      - dependency-name: react
+      - dependency-name: react-dom
+      - dependency-name: mobx
+      - dependency-name: mobx-react
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
