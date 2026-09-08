@@ -18,7 +18,7 @@ const IDLE_COLUMNS: Column<IdleRow>[] = [
   {
     key: "vram",
     title: "VRAM held",
-    width: 100,
+    width: 115,
     min: 60,
     num: true,
     value: (r) => r.vramUsedMiB,
@@ -36,7 +36,7 @@ const IDLE_COLUMNS: Column<IdleRow>[] = [
   {
     key: "peak",
     title: "Peak in window",
-    width: 110,
+    width: 135,
     min: 60,
     num: true,
     value: (r) => r.peakUtilPct,

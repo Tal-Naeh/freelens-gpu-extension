@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Docs: screenshots of the GPUs (MIG) and Idle & waste views in the README.
+- UI: wider default widths for the "VRAM held" and "Peak in window" columns so the headers are not truncated.
+
 ## 0.3.1
 
 - Fix: LICENSE copyright holder.

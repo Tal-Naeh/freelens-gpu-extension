@@ -9,6 +9,10 @@ Zero cluster footprint. The extension auto-discovers a GPU metrics exporter you 
 
 It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubectl-gpugo) (`kubectl krew install gpugo`) and shares its attribution rules and data model, so both tools show the same numbers.
 
+![GPUs view: 48 MIG slices on A100s, with model, profile, utilisation, VRAM, power and temperature](docs/screenshots/gpus-mig.png)
+
+![Idle & waste view: pods holding VRAM at 0 % utilisation, sorted by VRAM held](docs/screenshots/idle-waste.png)
+
 ## Features
 
 - **Autodiscovery** — lists pods, keeps Running ones whose name, image or labels mention `dcgm`, `gpu`, `nvidia` or
