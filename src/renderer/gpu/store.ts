@@ -9,6 +9,7 @@ import { Renderer } from "@freelensapp/extensions";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import { sortDevices, sortRows } from "./aggregate";
 import { GpuScraper, type ProbeResult } from "./scraper";
+
 import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, Snapshot } from "./types";
 
 export const DEFAULT_INTERVAL_MS = 20_000;
@@ -195,7 +196,10 @@ export class GpuStore {
         const alloc = (n.status?.allocatable as Record<string, string> | undefined)?.["nvidia.com/gpu"];
         const labels = n.metadata.labels ?? {};
         const gpuType =
-          labels["nvidia.com/gpu.product"] ?? labels["gpu-type"] ?? labels["cloud.google.com/gke-accelerator"] ?? labels["accelerator"];
+          labels["nvidia.com/gpu.product"] ??
+          labels["gpu-type"] ??
+          labels["cloud.google.com/gke-accelerator"] ??
+          labels["accelerator"];
         return { name: n.getName(), gpuType, capacity: Number(cap ?? 0) || 0, allocatable: Number(alloc ?? 0) || 0 };
       });
       runInAction(() => {

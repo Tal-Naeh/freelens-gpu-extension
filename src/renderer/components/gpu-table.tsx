@@ -43,17 +43,61 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
     ),
   },
   { key: "node", title: "Node", width: 200, min: 60, value: (r) => r.node, className: "gpuext-dim" },
-  { key: "gpu", title: "GPU", width: 90, min: 50, value: (r) => gpuSortKey(r), title_: (r) => r.gpus.join(", "), render: (r) => <GpuBadges r={r} /> },
-  { key: "util", title: "GPU %", width: 175, min: 90, value: (r) => r.gpuUtilPct, title_: (r) => `${r.gpuUtilPct.toFixed(1)}%`, render: (r) => <UtilBar pct={r.gpuUtilPct} /> },
-  { key: "vramUsed", title: "VRAM used", width: 100, min: 60, num: true, value: (r) => r.vramUsedMiB, render: (r) => fmtMiB(r.vramUsedMiB) },
-  { key: "vramTotal", title: "VRAM total", width: 100, min: 60, num: true, value: (r) => vramTotalMiB(r), render: (r) => fmtMiB(vramTotalMiB(r)), className: "gpuext-dim" },
-  { key: "power", title: "Power", width: 80, min: 50, num: true, value: (r) => r.powerWatts, render: (r) => `${r.powerWatts.toFixed(0)} W` },
+  {
+    key: "gpu",
+    title: "GPU",
+    width: 90,
+    min: 50,
+    value: (r) => gpuSortKey(r),
+    title_: (r) => r.gpus.join(", "),
+    render: (r) => <GpuBadges r={r} />,
+  },
+  {
+    key: "util",
+    title: "GPU %",
+    width: 175,
+    min: 90,
+    value: (r) => r.gpuUtilPct,
+    title_: (r) => `${r.gpuUtilPct.toFixed(1)}%`,
+    render: (r) => <UtilBar pct={r.gpuUtilPct} />,
+  },
+  {
+    key: "vramUsed",
+    title: "VRAM used",
+    width: 100,
+    min: 60,
+    num: true,
+    value: (r) => r.vramUsedMiB,
+    render: (r) => fmtMiB(r.vramUsedMiB),
+  },
+  {
+    key: "vramTotal",
+    title: "VRAM total",
+    width: 100,
+    min: 60,
+    num: true,
+    value: (r) => vramTotalMiB(r),
+    render: (r) => fmtMiB(vramTotalMiB(r)),
+    className: "gpuext-dim",
+  },
+  {
+    key: "power",
+    title: "Power",
+    width: 80,
+    min: 50,
+    num: true,
+    value: (r) => r.powerWatts,
+    render: (r) => `${r.powerWatts.toFixed(0)} W`,
+  },
 ];
 
 const COMPACT_HIDDEN = new Set(["namespace", "pod", "node"]);
 
 export function GpuTable({ rows, compact }: GpuTableProps) {
-  const columns = React.useMemo(() => (compact ? POD_COLUMNS.filter((c) => !COMPACT_HIDDEN.has(c.key)) : POD_COLUMNS), [compact]);
+  const columns = React.useMemo(
+    () => (compact ? POD_COLUMNS.filter((c) => !COMPACT_HIDDEN.has(c.key)) : POD_COLUMNS),
+    [compact],
+  );
   return (
     <DataGrid
       id={compact ? "pods.compact" : "pods.full"}

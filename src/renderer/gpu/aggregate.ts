@@ -293,7 +293,6 @@ export function physicalGPUGroup(r: PodGPU): string {
   return i >= 0 ? first.slice(0, i) : r.gpus.join(",");
 }
 
-
 // ---------------------------------------------------------------------------
 // Per-device view (one row per physical GPU / MIG slice)
 // ---------------------------------------------------------------------------

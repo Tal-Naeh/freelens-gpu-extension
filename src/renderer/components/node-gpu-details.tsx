@@ -23,8 +23,11 @@ export const NodeGpuDetails = observer(({ object: node }: Props) => {
         <div className="gpuext-hint">
           {devs.length} device{devs.length === 1 ? "" : "s"}
           {devs[0].model ? ` · ${devs[0].model}` : ""} · {fmtMiB(devs.reduce((s, d) => s + d.vramUsedMiB, 0))} /{" "}
-          {fmtMiB(devs.reduce((s, d) => s + d.vramTotalMiB, 0))} VRAM · {devs.reduce((s, d) => s + d.powerWatts, 0).toFixed(0)} W
-          {devs.some((d) => d.tempC !== undefined) ? ` · max ${Math.max(...devs.map((d) => d.tempC ?? 0)).toFixed(0)} °C` : ""}
+          {fmtMiB(devs.reduce((s, d) => s + d.vramTotalMiB, 0))} VRAM ·{" "}
+          {devs.reduce((s, d) => s + d.powerWatts, 0).toFixed(0)} W
+          {devs.some((d) => d.tempC !== undefined)
+            ? ` · max ${Math.max(...devs.map((d) => d.tempC ?? 0)).toFixed(0)} °C`
+            : ""}
         </div>
       )}
       {rows.length > 0 && <GpuTable rows={rows.map((r) => ({ ...r, node: "" }))} />}

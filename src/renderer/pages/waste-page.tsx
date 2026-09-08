@@ -1,9 +1,11 @@
-import type { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { gpuStore, IDLE_MIN_VRAM_MIB, IDLE_UTIL_PCT } from "../gpu/store";
+
+import type { Renderer } from "@freelensapp/extensions";
+
 import type { IdleRow } from "../gpu/types";
 
 const fmtMin = (m: number) => (m < 1 ? "<1 min" : m < 60 ? `${m.toFixed(0)} min` : `${(m / 60).toFixed(1)} h`);
@@ -13,11 +15,52 @@ const IDLE_COLUMNS: Column<IdleRow>[] = [
   { key: "pod", title: "Pod", width: 360, min: 80, value: (r) => r.pod },
   { key: "node", title: "Node", width: 200, min: 60, value: (r) => r.node, className: "gpuext-dim" },
   { key: "gpu", title: "GPU", width: 80, min: 50, value: (r) => r.gpus.join(","), className: "gpuext-mono" },
-  { key: "vram", title: "VRAM held", width: 100, min: 60, num: true, value: (r) => r.vramUsedMiB, render: (r) => fmtMiB(r.vramUsedMiB) },
-  { key: "util", title: "GPU % now", width: 90, min: 60, num: true, value: (r) => r.gpuUtilPct, render: (r) => `${r.gpuUtilPct.toFixed(1)}%` },
-  { key: "peak", title: "Peak in window", width: 110, min: 60, num: true, value: (r) => r.peakUtilPct, render: (r) => `${r.peakUtilPct.toFixed(1)}%` },
-  { key: "idle", title: "Idle for", width: 100, min: 60, num: true, value: (r) => r.idleMinutes, render: (r) => fmtMin(r.idleMinutes), title_: (r) => `${r.samples} sample${r.samples === 1 ? "" : "s"} since this view was opened` },
-  { key: "power", title: "Power", width: 80, min: 50, num: true, value: (r) => r.powerWatts, render: (r) => `${r.powerWatts.toFixed(0)} W` },
+  {
+    key: "vram",
+    title: "VRAM held",
+    width: 100,
+    min: 60,
+    num: true,
+    value: (r) => r.vramUsedMiB,
+    render: (r) => fmtMiB(r.vramUsedMiB),
+  },
+  {
+    key: "util",
+    title: "GPU % now",
+    width: 90,
+    min: 60,
+    num: true,
+    value: (r) => r.gpuUtilPct,
+    render: (r) => `${r.gpuUtilPct.toFixed(1)}%`,
+  },
+  {
+    key: "peak",
+    title: "Peak in window",
+    width: 110,
+    min: 60,
+    num: true,
+    value: (r) => r.peakUtilPct,
+    render: (r) => `${r.peakUtilPct.toFixed(1)}%`,
+  },
+  {
+    key: "idle",
+    title: "Idle for",
+    width: 100,
+    min: 60,
+    num: true,
+    value: (r) => r.idleMinutes,
+    render: (r) => fmtMin(r.idleMinutes),
+    title_: (r) => `${r.samples} sample${r.samples === 1 ? "" : "s"} since this view was opened`,
+  },
+  {
+    key: "power",
+    title: "Power",
+    width: 80,
+    min: 50,
+    num: true,
+    value: (r) => r.powerWatts,
+    render: (r) => `${r.powerWatts.toFixed(0)} W`,
+  },
 ];
 
 export const WastePage = observer(({ extension }: { extension: Renderer.LensExtension }) => {
@@ -29,8 +72,8 @@ export const WastePage = observer(({ extension }: { extension: Renderer.LensExte
       title="Idle GPU holders"
       subtitle={
         <>
-          Pods holding more than {fmtMiB(IDLE_MIN_VRAM_MIB)} of VRAM at under {IDLE_UTIL_PCT}% utilisation. "Idle for" counts
-          consecutive idle samples observed by this Freelens window (history resets when Freelens restarts).
+          Pods holding more than {fmtMiB(IDLE_MIN_VRAM_MIB)} of VRAM at under {IDLE_UTIL_PCT}% utilisation. "Idle for"
+          counts consecutive idle samples observed by this Freelens window (history resets when Freelens restarts).
           {rows.length > 0 && (
             <>
               {" "}

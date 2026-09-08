@@ -12,6 +12,7 @@ import {
   sortRows,
 } from "../aggregate";
 import { classifyMetrics, parsePrometheusText } from "../prom";
+
 import type { PodGPU } from "../types";
 
 const fixture = (name: string) => readFileSync(join(__dirname, "fixtures", name), "utf8");
@@ -97,7 +98,13 @@ describe("per-device aggregation", () => {
     const devs = sortDevices(aggregateDevicesDcgm(fams("dcgm_pod_labels.prom"), "exporter-node"));
     expect(devs.map((d) => d.gpu)).toEqual(["0", "1", "2", "3"]);
     const g0 = devs[0];
-    expect(g0).toMatchObject({ node: "node-a", uuid: "GPU-aaaa", model: "NVIDIA A100-SXM4-80GB", utilPct: 87, tempC: 71 });
+    expect(g0).toMatchObject({
+      node: "node-a",
+      uuid: "GPU-aaaa",
+      model: "NVIDIA A100-SXM4-80GB",
+      utilPct: 87,
+      tempC: 71,
+    });
     expect(g0.vramUsedMiB).toBe(70000);
     expect(g0.vramTotalMiB).toBe(81000);
     expect(g0.pods).toEqual(["ml/vllm-0"]);
@@ -107,13 +114,25 @@ describe("per-device aggregation", () => {
   it("dcgm MIG: one device per slice with profile", () => {
     const devs = sortDevices(aggregateDevicesDcgm(fams("dcgm_mig.prom"), "dgx-1"));
     expect(devs.map((d) => d.gpu)).toEqual(["0:7", "0:8", "0:9", "1:1"]);
-    expect(devs[0]).toMatchObject({ migProfile: "1g.10gb", utilPct: 42, vramUsedMiB: 6000, vramTotalMiB: 9700, pods: ["it-dgx1/transcription-0"] });
+    expect(devs[0]).toMatchObject({
+      migProfile: "1g.10gb",
+      utilPct: 42,
+      vramUsedMiB: 6000,
+      vramTotalMiB: 9700,
+      pods: ["it-dgx1/transcription-0"],
+    });
   });
   it("enricher: totals per uuid, usage summed, pods collected", () => {
     const devs = sortDevices(aggregateDevicesEnricher([{ fams: fams("enricher.prom"), node: "gpu-node-1" }]));
     expect(devs).toHaveLength(2);
     const g0 = devs[0];
-    expect(g0).toMatchObject({ node: "gpu-node-1", gpu: "0", uuid: "GPU-aaaa", powerWatts: 400, vramTotalMiB: 80 * 1024 });
+    expect(g0).toMatchObject({
+      node: "gpu-node-1",
+      gpu: "0",
+      uuid: "GPU-aaaa",
+      powerWatts: 400,
+      vramTotalMiB: 80 * 1024,
+    });
     expect(g0.vramUsedMiB).toBe(70 * 1024); // 40+10+20 GiB
     expect(g0.utilPct).toBe(60); // max process util (no device-level gauge in fixture)
     expect(g0.pods).toEqual(["embeddings/tei-1", "ml/vllm-0"]);

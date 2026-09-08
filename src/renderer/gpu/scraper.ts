@@ -20,6 +20,7 @@ import {
   extractDcgmSamples,
 } from "./aggregate";
 import { classifyMetrics, parsePrometheusText } from "./prom";
+
 import type { ExporterPod, ExporterScrape, GpuDevice, PodGPU, Snapshot } from "./types";
 
 type Pod = Renderer.K8sApi.Pod;
@@ -198,7 +199,11 @@ export class GpuScraper {
           const text = await this.deps.fetchText(clusterId, metricsPath(c.ns, c.name, c.port), PROBE_TIMEOUT_MS);
           const kind = classifyMetrics(text);
           if (!kind) {
-            probes.push({ target, outcome: "unrecognised", detail: `${text.length} bytes, first line: ${text.split("\n")[0]?.slice(0, 80)}` });
+            probes.push({
+              target,
+              outcome: "unrecognised",
+              detail: `${text.length} bytes, first line: ${text.split("\n")[0]?.slice(0, 80)}`,
+            });
             return undefined;
           }
           probes.push({ target, outcome: kind });
@@ -240,7 +245,11 @@ export class GpuScraper {
       exporters.map(async (ex) => {
         const t0 = performance.now();
         try {
-          const text = await this.deps.fetchText(clusterId, metricsPath(ex.namespace, ex.name, ex.port), SCRAPE_TIMEOUT_MS);
+          const text = await this.deps.fetchText(
+            clusterId,
+            metricsPath(ex.namespace, ex.name, ex.port),
+            SCRAPE_TIMEOUT_MS,
+          );
           scraped.push({ ...ex, latencyMs: Math.round(performance.now() - t0), bytes: text.length });
           return { ex, fams: parsePrometheusText(text) };
         } catch (e) {
@@ -251,7 +260,9 @@ export class GpuScraper {
     );
     const ok = bodies.filter((b): b is NonNullable<typeof b> => !!b);
     if (ok.length === 0) {
-      throw new Error(`All ${exporters.length} exporter scrapes failed: ${scraped.map((s) => `${s.namespace}/${s.name}: ${s.error}`).join("; ")}`);
+      throw new Error(
+        `All ${exporters.length} exporter scrapes failed: ${scraped.map((s) => `${s.namespace}/${s.name}: ${s.error}`).join("; ")}`,
+      );
     }
 
     const enrichers = ok.filter((b) => b.ex.kind === "enricher");

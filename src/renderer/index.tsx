@@ -22,7 +22,13 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
     { id: "gpu-pods", parentId: "gpu", target: { pageId: "gpu-pods" }, title: "Pods", components: {} },
     { id: "gpu-devices", parentId: "gpu", target: { pageId: "gpu-devices" }, title: "GPUs", components: {} },
     { id: "gpu-idle", parentId: "gpu", target: { pageId: "gpu-idle" }, title: "Idle & waste", components: {} },
-    { id: "gpu-allocation", parentId: "gpu", target: { pageId: "gpu-allocation" }, title: "Allocation", components: {} },
+    {
+      id: "gpu-allocation",
+      parentId: "gpu",
+      target: { pageId: "gpu-allocation" },
+      title: "Allocation",
+      components: {},
+    },
     { id: "gpu-exporters", parentId: "gpu", target: { pageId: "gpu-exporters" }, title: "Exporters", components: {} },
   ];
 

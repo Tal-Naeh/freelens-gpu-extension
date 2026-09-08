@@ -4,10 +4,14 @@
   "exclude": ["src/**/__tests__/**"],
   "compilerOptions": {
     "composite": true,
+    "resolveJsonModule": true,
     "esModuleInterop": true,
     "moduleResolution": "node10",
     "jsx": "react-jsx",
     "experimentalDecorators": true,
-    "types": ["vite/client", "electron-vite/node"]
+    "types": ["node", "vite/client", "electron-vite/node"],
+    "paths": {
+      "@vitejs/plugin-react": ["./node_modules/@vitejs/plugin-react/dist/index.d.ts"]
+    }
   }
 }
