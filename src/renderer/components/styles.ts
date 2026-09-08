@@ -6,16 +6,18 @@ export const gpuStyles = `
 .gpuext-status { color: var(--textColorSecondary); font-size: 12px; }
 .gpuext-error { color: var(--colorError); margin: var(--padding) 0; white-space: pre-wrap; }
 .gpuext-hint { color: var(--textColorSecondary); font-size: 12px; margin: var(--padding) 0; }
-.gpuext-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.gpuext-table th { text-align: left; font-weight: 500; color: var(--textColorSecondary);
-  padding: 6px 10px; border-bottom: 1px solid var(--borderColor); white-space: nowrap; }
-.gpuext-table td { padding: 6px 10px; border-bottom: 1px solid var(--borderFaintColor); white-space: nowrap; vertical-align: middle; }
-.gpuext-table tr.gpuext-sep td { border-top: 2px solid var(--borderColor); }
-.gpuext-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.gpuext-table th.num { text-align: right; }
+.gpuext-grid { display: grid; width: 100%; font-size: 13px; align-items: center; }
+.gpuext-grid.full { grid-template-columns: minmax(90px, 0.8fr) minmax(200px, 2.4fr) minmax(120px, 1fr) minmax(70px, auto) 175px 100px 100px 80px; }
+.gpuext-grid.compact { grid-template-columns: minmax(70px, auto) 175px 100px 100px 80px; }
+.gpuext-row { display: contents; }
+.gpuext-cell { padding: 6px 10px; border-bottom: 1px solid var(--borderFaintColor); white-space: nowrap; min-width: 0; line-height: 20px; }
+.gpuext-head .gpuext-cell { font-weight: 500; color: var(--textColorSecondary); border-bottom: 1px solid var(--borderColor); }
+.gpuext-sep .gpuext-cell { border-top: 2px solid var(--borderColor); }
+.gpuext-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+.gpuext-cell.ellipsis { overflow: hidden; text-overflow: ellipsis; }
 .gpuext-mono { font-family: var(--font-monospace, monospace); }
 .gpuext-dim { color: var(--textColorSecondary); }
-.gpuext-bar { display: inline-block; width: 90px; height: 8px; border-radius: 4px; background: var(--borderFaintColor); vertical-align: middle; margin-right: 8px; overflow: hidden; }
+.gpuext-bar { display: inline-block; width: 80px; height: 8px; border-radius: 4px; background: var(--borderFaintColor); vertical-align: middle; margin-right: 8px; overflow: hidden; }
 .gpuext-bar > span { display: block; height: 100%; border-radius: 4px; }
 .gpuext-bar.ok > span { background: var(--colorOk); }
 .gpuext-bar.warn > span { background: var(--colorWarning); }
@@ -23,7 +25,6 @@ export const gpuStyles = `
 .gpuext-bar.idle > span { background: var(--textColorTertiary); }
 .gpuext-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--borderFaintColor); margin-right: 4px; font-size: 12px; }
 .gpuext-details { font-size: 13px; }
-.gpuext-details table { width: 100%; }
 .gpuext-empty { color: var(--textColorSecondary); padding: calc(var(--padding) * 2); }
 .gpuext-actions { display: flex; gap: var(--padding); align-items: center; }
 `;
