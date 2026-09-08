@@ -14,7 +14,7 @@ It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubec
 A **GPU** group in the cluster sidebar with five views, all fed by the same 20 s scrape:
 
 | View | Question it answers |
-|------|---------------------|
+| --- | --- |
 | **Pods** | Which pods hold GPUs right now, on which card / MIG slice, at what utilisation, VRAM and power. Sorted by physical GPU so pile-ups are obvious. |
 | **GPUs** | One row per physical GPU or MIG slice: model, MIG profile, utilisation, VRAM used / total / %, power, temperature, and the pods sharing it. Cards with no pod are listed too. |
 | **Idle & waste** | Pods holding VRAM at under 5 % utilisation, with how long they have been idle (history kept while Freelens is open). The first place to look before buying more GPUs. |
@@ -28,13 +28,13 @@ Also:
 - **Node details drawer**: device summary (count, model, VRAM, power, max temperature) plus every GPU row on that node.
 - The page title carries the extension version so you always know what you are looking at.
 
-| Column     | Meaning                                                                                   |
-|------------|-------------------------------------------------------------------------------------------|
-| GPU        | GPU index(es): `2` (single), `0`,`1` (two cards), `0:8` (MIG slice 8 of GPU 0)              |
-| GPU %      | Activity across the pod's GPUs (DCGM `GPU_UTIL`, or `PROF_GR_ENGINE_ACTIVE` on MIG)        |
-| VRAM used  | Framebuffer used, summed across the pod's GPUs / slices                                   |
-| VRAM total | Used + free framebuffer for those GPUs / slices                                           |
-| Power      | Watts; on shared GPUs, a proportional share by VRAM                                       |
+| Column | Meaning |
+| --- | --- |
+| GPU | GPU index(es): `2` (single), `0`,`1` (two cards), `0:8` (MIG slice 8 of GPU 0) |
+| GPU % | Activity across the pod's GPUs (DCGM `GPU_UTIL`, or `PROF_GR_ENGINE_ACTIVE` on MIG) |
+| VRAM used | Framebuffer used, summed across the pod's GPUs / slices |
+| VRAM total | Used + free framebuffer for those GPUs / slices |
+| Power | Watts; on shared GPUs, a proportional share by VRAM |
 
 ## Requirements
 
