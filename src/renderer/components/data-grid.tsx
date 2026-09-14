@@ -20,6 +20,11 @@ export interface Column<T> {
   title_?: (row: T) => string;
   /** Extra class for body cells. */
   className?: string;
+  /**
+   * Group id used for the heavier separator while THIS column is the sort key.
+   * Omit for columns whose values are unique or continuous (pod names, percentages).
+   */
+  groupOf?: (row: T) => string;
 }
 
 export interface DataGridProps<T> {
@@ -28,7 +33,10 @@ export interface DataGridProps<T> {
   rows: T[];
   rowKey: (row: T) => string;
   defaultSort?: { key: string; dir: "asc" | "desc" };
-  /** Returns a group id; a heavier separator is drawn when it changes (only under the default sort). */
+  /**
+   * Group id under the default sort (and when unsorted); a heavier separator is drawn when it changes.
+   * Sorting by another column switches to that column's own `groupOf`, if any.
+   */
   groupOf?: (row: T) => string;
   emptyText?: string;
 }
@@ -43,6 +51,23 @@ function compare(a: string | number, b: string | number): number {
   const sa = String(a);
   const sb = String(b);
   return sa < sb ? -1 : sa > sb ? 1 : 0;
+}
+
+/**
+ * Which grouping applies for the current sort: the sorted column's own grouper, else the grid-level
+ * grouper when unsorted or sorted by the default column, else none (separators would be meaningless).
+ */
+export function activeGrouper<T>(
+  columns: Column<T>[],
+  sort: SortState | undefined,
+  defaultSort: SortState | undefined,
+  groupOf?: (row: T) => string,
+): ((row: T) => string) | undefined {
+  if (!sort) return groupOf;
+  const col = columns.find((c) => c.key === sort.key);
+  if (col?.groupOf) return col.groupOf;
+  if (defaultSort && sort.key === defaultSort.key) return groupOf;
+  return undefined;
 }
 
 function storageKey(id: string) {
@@ -127,7 +152,7 @@ export function DataGrid<T>({ id, columns, rows, rowKey, defaultSort, groupOf, e
     return [...rows].sort((a, b) => sign * compare(col.value(a), col.value(b)));
   }, [rows, columns, sort]);
 
-  const showGroups = !!groupOf && (!sort || (defaultSort && sort.key === defaultSort.key));
+  const grouper = activeGrouper(columns, sort, defaultSort, groupOf);
   const template = widths.map((w) => `${w}px`).join(" ");
 
   if (rows.length === 0 && emptyText) return <div className="gpuext-empty">{emptyText}</div>;
@@ -158,8 +183,8 @@ export function DataGrid<T>({ id, columns, rows, rowKey, defaultSort, groupOf, e
         ))}
       </div>
       {sorted.map((r) => {
-        const group = groupOf ? groupOf(r) : "";
-        const sep = showGroups && prevGroup !== "" && group !== prevGroup;
+        const group = grouper ? grouper(r) : "";
+        const sep = !!grouper && prevGroup !== "" && group !== prevGroup;
         prevGroup = group;
         return (
           <div key={rowKey(r)} className={`gpuext-row${sep ? " gpuext-sep" : ""}`} role="row">

@@ -27,7 +27,7 @@ const GpuBadges = ({ r }: { r: PodGPU }) =>
 const hintOf = (r: PodGPU) => (isFallback(r) && r.hintPods && r.hintPods.length > 0 ? r.hintPods.join(", ") : "");
 
 export const POD_COLUMNS: Column<PodGPU>[] = [
-  { key: "namespace", title: "Namespace", width: 130, min: 60, value: (r) => r.namespace },
+  { key: "namespace", title: "Namespace", width: 130, min: 60, value: (r) => r.namespace, groupOf: (r) => r.namespace },
   {
     key: "pod",
     title: "Pod",
@@ -42,13 +42,22 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
       </>
     ),
   },
-  { key: "node", title: "Node", width: 200, min: 60, value: (r) => r.node, className: "gpuext-dim" },
+  {
+    key: "node",
+    title: "Node",
+    width: 200,
+    min: 60,
+    value: (r) => r.node,
+    className: "gpuext-dim",
+    groupOf: (r) => r.node,
+  },
   {
     key: "gpu",
     title: "GPU",
     width: 90,
     min: 50,
     value: (r) => gpuSortKey(r),
+    groupOf: physicalGPUGroup,
     title_: (r) => r.gpus.join(", "),
     render: (r) => <GpuBadges r={r} />,
   },

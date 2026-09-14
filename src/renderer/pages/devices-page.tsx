@@ -18,7 +18,7 @@ const gpuKey = (d: GpuDevice) =>
 const tempClass = (t?: number) => (t === undefined ? "" : t >= 85 ? "gpuext-hot" : t >= 75 ? "gpuext-warn" : "");
 
 export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
-  { key: "node", title: "Node", width: 220, min: 80, value: (d) => d.node },
+  { key: "node", title: "Node", width: 220, min: 80, value: (d) => d.node, groupOf: (d) => d.node },
   {
     key: "gpu",
     title: "GPU",
@@ -28,8 +28,24 @@ export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
     title_: (d) => d.gpu,
     render: (d) => <span className="gpuext-badge gpuext-mono">{d.gpu}</span>,
   },
-  { key: "model", title: "Model", width: 200, min: 80, value: (d) => d.model ?? "", className: "gpuext-dim" },
-  { key: "mig", title: "MIG profile", width: 100, min: 60, value: (d) => d.migProfile ?? "", className: "gpuext-mono" },
+  {
+    key: "model",
+    title: "Model",
+    width: 200,
+    min: 80,
+    value: (d) => d.model ?? "",
+    className: "gpuext-dim",
+    groupOf: (d) => d.model ?? "",
+  },
+  {
+    key: "mig",
+    title: "MIG profile",
+    width: 100,
+    min: 60,
+    value: (d) => d.migProfile ?? "",
+    className: "gpuext-mono",
+    groupOf: (d) => d.migProfile ?? "",
+  },
   {
     key: "util",
     title: "GPU %",

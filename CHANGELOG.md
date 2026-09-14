@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- Fix: the heavier group separator in every table now follows the sorted column (namespace, node, physical GPU,
+  model, MIG profile, GPU type, outcome) instead of disappearing as soon as the sort left the default column.
+  Columns with unique or continuous values (pod name, percentages, sizes) draw no separators.
+
 ## 0.3.2
 
 - Docs: screenshots of the GPUs (MIG) and Idle & waste views in the README.

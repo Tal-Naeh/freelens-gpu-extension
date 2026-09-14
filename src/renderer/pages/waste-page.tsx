@@ -11,9 +11,17 @@ import type { IdleRow } from "../gpu/types";
 const fmtMin = (m: number) => (m < 1 ? "<1 min" : m < 60 ? `${m.toFixed(0)} min` : `${(m / 60).toFixed(1)} h`);
 
 const IDLE_COLUMNS: Column<IdleRow>[] = [
-  { key: "namespace", title: "Namespace", width: 130, min: 60, value: (r) => r.namespace },
+  { key: "namespace", title: "Namespace", width: 130, min: 60, value: (r) => r.namespace, groupOf: (r) => r.namespace },
   { key: "pod", title: "Pod", width: 360, min: 80, value: (r) => r.pod },
-  { key: "node", title: "Node", width: 200, min: 60, value: (r) => r.node, className: "gpuext-dim" },
+  {
+    key: "node",
+    title: "Node",
+    width: 200,
+    min: 60,
+    value: (r) => r.node,
+    className: "gpuext-dim",
+    groupOf: (r) => r.node,
+  },
   { key: "gpu", title: "GPU", width: 80, min: 50, value: (r) => r.gpus.join(","), className: "gpuext-mono" },
   {
     key: "vram",

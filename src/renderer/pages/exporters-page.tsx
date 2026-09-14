@@ -9,7 +9,7 @@ import type { ProbeResult } from "../gpu/scraper";
 import type { ExporterScrape } from "../gpu/types";
 
 const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
-  { key: "ns", title: "Namespace", width: 150, min: 60, value: (e) => e.namespace },
+  { key: "ns", title: "Namespace", width: 150, min: 60, value: (e) => e.namespace, groupOf: (e) => e.namespace },
   { key: "name", title: "Pod", width: 320, min: 80, value: (e) => e.name },
   { key: "port", title: "Port", width: 70, min: 50, num: true, value: (e) => e.port },
   {
@@ -20,7 +20,15 @@ const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
     value: (e) => e.kind,
     render: (e) => <span className="gpuext-badge">{e.kind === "dcgm" ? "dcgm-exporter" : "per-process"}</span>,
   },
-  { key: "node", title: "Node", width: 220, min: 80, value: (e) => e.nodeName, className: "gpuext-dim" },
+  {
+    key: "node",
+    title: "Node",
+    width: 220,
+    min: 80,
+    value: (e) => e.nodeName,
+    className: "gpuext-dim",
+    groupOf: (e) => e.nodeName,
+  },
   {
     key: "latency",
     title: "Scrape",
@@ -44,7 +52,7 @@ const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
 
 const PROBE_COLUMNS: Column<ProbeResult>[] = [
   { key: "target", title: "Candidate (ns/pod:port)", width: 420, min: 100, value: (p) => p.target },
-  { key: "outcome", title: "Outcome", width: 120, min: 60, value: (p) => p.outcome },
+  { key: "outcome", title: "Outcome", width: 120, min: 60, value: (p) => p.outcome, groupOf: (p) => p.outcome },
   { key: "detail", title: "Detail", width: 600, min: 100, value: (p) => p.detail ?? "", className: "gpuext-dim" },
 ];
 

@@ -11,7 +11,15 @@ import type { AllocationRow } from "../gpu/types";
 
 const ALLOC_COLUMNS: Column<AllocationRow>[] = [
   { key: "node", title: "Node", width: 240, min: 80, value: (r) => r.node },
-  { key: "type", title: "GPU type", width: 200, min: 80, value: (r) => r.gpuType ?? "", className: "gpuext-dim" },
+  {
+    key: "type",
+    title: "GPU type",
+    width: 200,
+    min: 80,
+    value: (r) => r.gpuType ?? "",
+    className: "gpuext-dim",
+    groupOf: (r) => r.gpuType ?? "",
+  },
   {
     key: "capacity",
     title: "Capacity",
