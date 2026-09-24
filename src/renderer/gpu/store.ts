@@ -20,7 +20,7 @@ import { aggregateNamespaces, migFree, type NamespaceRow } from "./namespaces";
 import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
 import { GpuScraper, type ProbeResult } from "./scraper";
 
-import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, Snapshot } from "./types";
+import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, PodState, Snapshot } from "./types";
 
 export const DEFAULT_INTERVAL_MS = 20_000;
 const STALE_MS = 30_000;
@@ -45,6 +45,8 @@ export interface PendingRow extends PendingGpuPod {
 
 export class GpuStore {
   @observable.ref snapshot: Snapshot | undefined = undefined;
+  /** Pod-list state; updated even when the metrics snapshot fails (no exporter, scrape errors). */
+  @observable.ref podState: PodState | undefined = undefined;
   @observable error: string | undefined = undefined;
   @observable loading = false;
   @observable.ref nodes: NodeInfo[] = [];
@@ -67,7 +69,8 @@ export class GpuStore {
     const replicas = new Map(this.nodes.map((n) => [n.name, n.replicas]));
     return sortRows(this.snapshot.rows).map((r) => ({
       ...r,
-      sharedWith: sharedWith(r, perDevice, replicas.get(r.node)),
+      sharedWith: sharedWith(r, perDevice),
+      timeSliced: r.source === "dcgm" && !r.gpuIndex && (replicas.get(r.node) ?? 1) > 1,
     }));
   }
 
@@ -120,16 +123,18 @@ export class GpuStore {
 
   /** Per namespace: requested vs in use vs idle vs waiting ("whose GPUs are these?"). */
   @computed get namespaceRows(): NamespaceRow[] {
-    const snap = this.snapshot;
-    if (!snap) return [];
-    return aggregateNamespaces(snap.requestedByNamespace, this.rows, this.idleRows, snap.pending);
+    const ps = this.podState;
+    if (!ps) return [];
+    return aggregateNamespaces(ps.requestedByNamespace, this.rows, this.idleRows, ps.pending);
   }
 
   /** Unscheduled GPU pods, oldest first, with hints the scheduler message does not give. */
   @computed get pendingRows(): PendingRow[] {
     const nodes: NodeGpuResources[] = this.nodes.map((n) => ({ name: n.name, allocatable: n.gpuResources }));
-    return (this.snapshot?.pending ?? [])
-      .map((p) => ({ ...p, hints: explainPending(p, nodes) }))
+    // Without a node list (RBAC, API error) every request would look unsatisfiable: give no hints rather than wrong ones.
+    const canHint = nodes.length > 0 && !this.nodesError;
+    return (this.podState?.pending ?? [])
+      .map((p) => ({ ...p, hints: canHint ? explainPending(p, nodes) : [] }))
       .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   }
 
@@ -165,14 +170,14 @@ export class GpuStore {
       a.capacity = n.capacity;
       a.allocatable = n.allocatable;
       a.unhealthy = Math.max(0, n.capacity - n.allocatable);
-      a.migFree = migFree(n.gpuResources, snap?.requestedByNode[n.name]?.byResource ?? {});
+      a.migFree = migFree(n.gpuResources, this.podState?.requestedByNode[n.name]?.byResource ?? {});
+    }
+    for (const [node, r] of Object.entries(this.podState?.requestedByNode ?? {})) {
+      const a = ensure(node);
+      a.requested = r.gpus;
+      a.requestingPods = r.pods;
     }
     if (snap) {
-      for (const [node, r] of Object.entries(snap.requestedByNode)) {
-        const a = ensure(node);
-        a.requested = r.gpus;
-        a.requestingPods = r.pods;
-      }
       const utilSum = new Map<string, number>();
       for (const d of this.devices) {
         const a = ensure(d.node);
@@ -275,6 +280,11 @@ export class GpuStore {
         this.error = e instanceof Error ? e.message : String(e);
       });
     } finally {
+      // Discovery lists pods before it looks for exporters, so this is fresh even when the snapshot threw.
+      const ps = this.scraper.podState;
+      runInAction(() => {
+        this.podState = ps;
+      });
       this.setLoading(false);
     }
   }

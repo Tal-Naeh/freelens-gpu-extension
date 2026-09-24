@@ -113,6 +113,7 @@ export const NamespacesPage = observer(({ extension }: { extension: Renderer.Len
     <PageShell
       extension={extension}
       title="GPU usage by namespace"
+      podOnly
       subtitle={
         <>
           Whose GPUs are these, and are they using them: devices requested by running pods, what the exporters measure

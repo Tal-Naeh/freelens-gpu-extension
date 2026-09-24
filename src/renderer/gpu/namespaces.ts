@@ -24,7 +24,7 @@ export interface NamespaceRow {
   idleVramMiB: number;
   pending: number;
   powerWatts: number;
-  /** Some pods sit on shared devices: their util/power are device-level, so the power total over-counts. */
+  /** Some pods sit on shared or time-sliced devices: their util/power are device-level, so the power total over-counts. */
   shared: boolean;
 }
 
@@ -34,7 +34,7 @@ export function aggregateNamespaces(
   idle: PodGPU[],
   pending: PendingGpuPod[],
 ): NamespaceRow[] {
-  const by = new Map<string, NamespaceRow & { utilSum: number; utilN: number }>();
+  const by = new Map<string, NamespaceRow & { utilSum: number; utilN: number; devs: Set<string> }>();
   const get = (ns: string) => {
     let r = by.get(ns);
     if (!r) {
@@ -53,6 +53,7 @@ export function aggregateNamespaces(
         shared: false,
         utilSum: 0,
         utilN: 0,
+        devs: new Set<string>(),
       };
       by.set(ns, r);
     }
@@ -67,12 +68,15 @@ export function aggregateNamespaces(
   for (const p of rows) {
     if (p.gpuIndex) continue; // per-(node, GPU) fallback rows have no namespace
     const r = get(p.namespace);
-    r.devicesInUse += p.gpuCount;
+    // Distinct devices: two pods of one namespace on a shared GPU use one device, not two. Rows without device
+    // ids (per-process exporter with no gpu label) count their gpuCount instead.
+    if (p.gpus.length > 0) for (const g of p.gpus) r.devs.add(`${p.node}/${g}`);
+    else for (let i = 0; i < p.gpuCount; i++) r.devs.add(`${p.node}/?${p.pod}/${i}`);
     r.vramUsedMiB += p.vramUsedMiB;
     r.powerWatts += p.powerWatts;
     r.utilSum += p.gpuUtilPct;
     r.utilN++;
-    if ((p.sharedWith ?? 1) > 1) r.shared = true;
+    if ((p.sharedWith ?? 1) > 1 || p.timeSliced) r.shared = true;
   }
   for (const p of idle) {
     const r = get(p.namespace);
@@ -81,7 +85,11 @@ export function aggregateNamespaces(
   }
   for (const p of pending) get(p.namespace).pending++;
   return [...by.values()]
-    .map(({ utilSum, utilN, ...r }) => ({ ...r, avgUtilPct: utilN > 0 ? utilSum / utilN : 0 }))
+    .map(({ utilSum, utilN, devs, ...r }) => ({
+      ...r,
+      devicesInUse: devs.size,
+      avgUtilPct: utilN > 0 ? utilSum / utilN : 0,
+    }))
     .sort((a, b) => b.requested - a.requested || b.vramUsedMiB - a.vramUsedMiB || (a.namespace < b.namespace ? -1 : 1));
 }
 

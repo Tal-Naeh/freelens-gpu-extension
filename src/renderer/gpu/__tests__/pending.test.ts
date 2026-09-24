@@ -43,6 +43,12 @@ describe("explainPending", () => {
     expect(h).toContain("No node offers gpu.");
     expect(h).toContain("request a slice such as nvidia.com/mig-1g.10gb");
   });
+  it("does not suggest MIG slices when the MIG resources on the nodes are all zero", () => {
+    const [h] = explainPending(pod({ "nvidia.com/gpu": 1 }), [
+      { name: "n", allocatable: { "nvidia.com/mig-1g.10gb": 0, "nvidia.com/mig-1g.10gb.shared": 0 } },
+    ]);
+    expect(h).toBe("No node offers gpu.");
+  });
   it("flags more devices than any single node has", () => {
     expect(
       explainPending(pod({ "nvidia.com/gpu": 2 }), [dgx, { name: "b", allocatable: { "nvidia.com/gpu": 1 } }]),

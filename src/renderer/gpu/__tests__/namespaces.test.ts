@@ -39,7 +39,7 @@ describe("aggregateNamespaces", () => {
       },
       [
         row("ml", "a", { gpuUtilPct: 80, vramUsedMiB: 1000, powerWatts: 100 }),
-        row("ml", "b", { gpuUtilPct: 0, vramUsedMiB: 3000, powerWatts: 50, sharedWith: 2 }),
+        row("ml", "b", { gpus: ["1"], gpuUtilPct: 0, vramUsedMiB: 3000, powerWatts: 50, sharedWith: 2 }), // shares GPU 1 with another namespace
         row("-", "(gpu 3)", { gpuIndex: "3" }), // fallback rows carry no namespace
       ],
       [row("ml", "b", { vramUsedMiB: 3000 })],
@@ -62,6 +62,29 @@ describe("aggregateNamespaces", () => {
     expect(ns.find((r) => r.namespace === "queue")).toMatchObject({ requested: 0, pending: 1 });
     expect(ns.some((r) => r.namespace === "-")).toBe(false);
     expect(ns[0].namespace).toBe("ml"); // most requested first
+  });
+});
+
+describe("aggregateNamespaces, shared devices", () => {
+  it("counts a GPU shared by two pods of one namespace once, and marks power as an upper bound", () => {
+    const [ml] = aggregateNamespaces(
+      {},
+      [
+        row("ml", "a", { gpus: ["0"], sharedWith: 2, powerWatts: 300 }),
+        row("ml", "b", { gpus: ["0"], sharedWith: 2, powerWatts: 300 }),
+      ],
+      [],
+      [],
+    );
+    expect(ml).toMatchObject({ devicesInUse: 1, powerWatts: 600, shared: true });
+  });
+  it("treats a time-sliced row as shared even when the exporter attributes the device to one pod", () => {
+    const [ml] = aggregateNamespaces({}, [row("ml", "a", { timeSliced: true })], [], []);
+    expect(ml.shared).toBe(true);
+  });
+  it("counts per-process rows without device ids by their gpuCount", () => {
+    const [ml] = aggregateNamespaces({}, [row("ml", "a", { gpus: [], gpuCount: 2 })], [], []);
+    expect(ml.devicesInUse).toBe(2);
   });
 });
 

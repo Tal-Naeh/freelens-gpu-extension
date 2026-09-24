@@ -241,13 +241,14 @@ describe("shared devices", () => {
     expect(sharedWith(byPod(rows, "ml", "a"), perDevice)).toBe(2);
     expect(sharedWith(byPod(rows, "ml", "c"), perDevice)).toBe(1);
   });
-  it("treats every DCGM row on a time-sliced node as shared", () => {
-    expect(sharedWith(byPod(rows, "ml", "c"), perDevice, 4)).toBe(4);
+  it("counts only pods the exporter attributes, never a node's time-slicing replica count", () => {
+    // replicas are a separate flag (PodGPU.timeSliced); a lone pod must not read "shared x4"
+    expect(sharedWith(byPod(rows, "ml", "c"), perDevice)).toBe(1);
   });
   it("never marks per-process exporter rows: they are already split per pod", () => {
     const [r] = buildEnricherRows([{ fams: fams("enricher.prom"), node: "gpu-node-1" }]);
     expect(r.source).toBe("enricher");
-    expect(sharedWith(r, new Map([["gpu-node-1/0", 3]]), 4)).toBe(1);
+    expect(sharedWith(r, new Map([["gpu-node-1/0", 3]]))).toBe(1);
   });
 });
 
