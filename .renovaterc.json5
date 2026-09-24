@@ -5,6 +5,9 @@
     ":semanticCommitsDisabled"
   ],
   "prHourlyLimit": 20,
+  // pnpm 12 refuses packages published less than a day ago (minimumReleaseAge),
+  // so wait as long before opening update PRs; security updates are exempt
+  "minimumReleaseAge": "1 day",
   "addLabels": [
     "renovate"
   ],
