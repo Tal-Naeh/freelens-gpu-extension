@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import React from "react";
-import { totalPowerW } from "../gpu/aggregate";
+import { deviceHealth, totalPowerW } from "../gpu/aggregate";
 import { gpuStore } from "../gpu/store";
 import { GpuTable } from "./gpu-table";
 import { fmtMiB, gpuStyles } from "./styles";
@@ -28,6 +28,16 @@ export const NodeGpuDetails = observer(({ object: node }: Props) => {
           {devs.some((d) => d.tempC !== undefined)
             ? ` · max ${Math.max(...devs.map((d) => d.tempC ?? 0)).toFixed(0)} °C`
             : ""}
+          {devs.some((d) => ["bad", "warn"].includes(deviceHealth(d).level)) && (
+            <span className="gpuext-hot">
+              {" "}
+              · health:{" "}
+              {devs
+                .filter((d) => ["bad", "warn"].includes(deviceHealth(d).level))
+                .map((d) => `GPU ${d.gpu} ${deviceHealth(d).text}`)
+                .join("; ")}
+            </span>
+          )}
         </div>
       )}
       {rows.length > 0 && <GpuTable rows={rows} hideNode />}

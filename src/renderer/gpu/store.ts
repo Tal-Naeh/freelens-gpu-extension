@@ -136,6 +136,7 @@ export class GpuStore {
           node: name,
           capacity: 0,
           allocatable: 0,
+          unhealthy: 0,
           requested: 0,
           requestingPods: [],
           devices: 0,
@@ -155,6 +156,7 @@ export class GpuStore {
       a.gpuType = n.gpuType;
       a.capacity = n.capacity;
       a.allocatable = n.allocatable;
+      a.unhealthy = Math.max(0, n.capacity - n.allocatable);
     }
     if (snap) {
       for (const [node, r] of Object.entries(snap.requestedByNode)) {

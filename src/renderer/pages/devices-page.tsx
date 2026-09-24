@@ -3,7 +3,7 @@ import { type Column, DataGrid } from "../components/data-grid";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { UtilBar } from "../components/util-bar";
-import { totalPowerW } from "../gpu/aggregate";
+import { deviceHealth, totalPowerW } from "../gpu/aggregate";
 import { gpuStore } from "../gpu/store";
 
 import type { Renderer } from "@freelensapp/extensions";
@@ -128,6 +128,25 @@ export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
     ),
   },
   {
+    key: "health",
+    title: "Health",
+    width: 150,
+    min: 70,
+    value: (d) => ({ bad: 0, warn: 1, unknown: 2, ok: 3 })[deviceHealth(d).level],
+    render: (d) => {
+      const h = deviceHealth(d);
+      const cls = { bad: "gpuext-hot", warn: "gpuext-warn", ok: "gpuext-ok", unknown: "gpuext-dim" }[h.level];
+      return <span className={cls}>{h.text}</span>;
+    },
+    title_: (d) => {
+      const h = deviceHealth(d);
+      return h.level === "unknown"
+        ? "dcgm-exporter reports no health gauges for this device (MIG slices never carry them; XID/ECC may be missing from the counters CSV)"
+        : `DCGM_FI_DEV_XID_ERRORS / ECC_DBE_VOL_TOTAL / ROW_REMAP_FAILURE / UNCORRECTABLE_REMAPPED_ROWS: ${h.text}`;
+    },
+    groupOf: (d) => deviceHealth(d).level,
+  },
+  {
     key: "pods",
     title: "Pods",
     width: 90,
@@ -151,6 +170,8 @@ export const DevicesPage = observer(({ extension }: { extension: Renderer.LensEx
   const idle = devs.filter((d) => d.pods.length === 0 && d.utilPct < 5).length;
   // Only dcgm-exporter can report profiling counters; say so when it runs without them.
   const hasDcgm = gpuStore.snapshot?.exporters.some((e) => e.kind === "dcgm") ?? false;
+  const sick = devs.filter((d) => ["bad", "warn"].includes(deviceHealth(d).level)).length;
+  const hasXidOrEcc = devs.some((d) => d.lastXid !== undefined || d.eccDbe !== undefined);
   const hasProf = devs.some(
     (d) => d.smActivePct !== undefined || d.tensorActivePct !== undefined || d.dramActivePct !== undefined,
   );
@@ -163,6 +184,13 @@ export const DevicesPage = observer(({ extension }: { extension: Renderer.LensEx
           <>
             {devs.length} device{devs.length === 1 ? "" : "s"} · {idle} with no pod and idle · total VRAM{" "}
             {fmtMiB(devs.reduce((s, d) => s + d.vramTotalMiB, 0))} · {totalPowerW(devs).toFixed(0)} W
+            {sick > 0 && <span className="gpuext-hot"> · {sick} with health issues</span>}
+            {hasDcgm && !hasXidOrEcc && (
+              <div className="gpuext-hint">
+                XID and ECC counters (<code>DCGM_FI_DEV_XID_ERRORS</code>, <code>ECC_DBE_VOL_TOTAL</code>) are not
+                exported, so Health can only show row-remap state; add them to dcgm-exporter's counters CSV.
+              </div>
+            )}
             {hasDcgm && !hasProf && (
               <div className="gpuext-hint">
                 GPU % is kernel time only: a card can read 100% while its SMs do little. The profiling counters that

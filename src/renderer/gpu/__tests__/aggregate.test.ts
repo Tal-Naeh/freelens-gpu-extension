@@ -7,6 +7,7 @@ import {
   aggregateDevicesDcgm,
   aggregateDevicesEnricher,
   buildEnricherRows,
+  deviceHealth,
   extractDcgmSamples,
   gpuResourceCount,
   podsPerDevice,
@@ -247,5 +248,34 @@ describe("shared devices", () => {
     const [r] = buildEnricherRows([{ fams: fams("enricher.prom"), node: "gpu-node-1" }]);
     expect(r.source).toBe("enricher");
     expect(sharedWith(r, new Map([["gpu-node-1/0", 3]]), 4)).toBe(1);
+  });
+});
+
+describe("device health", () => {
+  it("real capture: the whole GPU reports remap state (OK), MIG slices report nothing", () => {
+    const devs = aggregateDevicesDcgm(fams("dgx_a100_mig_mixed.prom"), "dgx-1");
+    const whole = devs.find((d) => d.gpu === "4");
+    expect(whole && deviceHealth(whole)).toEqual({ level: "ok", text: "OK" });
+    const slices = devs.filter((d) => d.migProfile).map((d) => deviceHealth(d).level);
+    expect(new Set(slices)).toEqual(new Set(["unknown"])); // never a reassuring "ok" without data
+  });
+  it("flags XID, uncorrectable ECC and row remap failure as bad, pending remap as warn", () => {
+    const f = parsePrometheusText(
+      [
+        'DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-a"} 79',
+        'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-b"} 2',
+        'DCGM_FI_DEV_ROW_REMAP_FAILURE{gpu="2",UUID="GPU-c"} 1',
+        'DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS{gpu="3",UUID="GPU-d"} 3',
+        'DCGM_FI_DEV_XID_ERRORS{gpu="4",UUID="GPU-e"} 0',
+      ].join("\n"),
+    );
+    const h = sortDevices(aggregateDevicesDcgm(f, "n")).map((d) => deviceHealth(d));
+    expect(h).toEqual([
+      { level: "bad", text: "XID 79" },
+      { level: "bad", text: "2 uncorrectable ECC" },
+      { level: "bad", text: "row remap failed" },
+      { level: "warn", text: "3 rows remapped (reset pending)" },
+      { level: "ok", text: "OK" },
+    ]);
   });
 });
