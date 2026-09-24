@@ -24,7 +24,7 @@ import {
 import { gpuRequestsOf, type PendingGpuPod } from "./pending";
 import { classifyMetrics, parsePrometheusText } from "./prom";
 
-import type { ExporterPod, ExporterScrape, GpuDevice, PodGPU, Snapshot } from "./types";
+import type { ExporterPod, ExporterScrape, GpuDevice, GpuRequests, PodGPU, Snapshot } from "./types";
 
 type Pod = Renderer.K8sApi.Pod;
 
@@ -162,7 +162,8 @@ export class GpuScraper {
   private discoveredAt = 0;
   /** Pods requesting nvidia.com/gpu grouped by node, refreshed with discovery. */
   private gpuPodsByNode = new Map<string, string[]>();
-  private requestedByNode: Record<string, { gpus: number; pods: string[] }> = {};
+  private requestedByNode: Record<string, GpuRequests> = {};
+  private requestedByNamespace: Record<string, GpuRequests> = {};
   private pending: PendingGpuPod[] = [];
   /** Outcome of the last discovery pass, for diagnostics in the UI and logs. */
   lastProbes: ProbeResult[] = [];
@@ -192,19 +193,27 @@ export class GpuScraper {
     const pods = await this.deps.listPods();
     this.lastPodCount = pods.length;
     const byNode = new Map<string, string[]>();
-    const requested: Record<string, { gpus: number; pods: string[] }> = {};
+    const requested: Record<string, GpuRequests> = {};
+    const requestedNs: Record<string, GpuRequests> = {};
+    const add = (m: Record<string, GpuRequests>, key: string, p: Pod, id: string) => {
+      const r = (m[key] ??= { gpus: 0, byResource: {}, pods: [] });
+      r.gpus += gpusRequested(p);
+      for (const [k, v] of Object.entries(gpuRequestsOf(p.getContainers())))
+        r.byResource[k] = (r.byResource[k] ?? 0) + v;
+      r.pods.push(id);
+    };
     for (const p of pods) {
       if (p.getStatusPhase() === "Running" && requestsGpu(p)) {
         const n = p.getNodeName() ?? "";
         const id = `${p.getNs()}/${p.getName()}`;
         byNode.set(n, [...(byNode.get(n) ?? []), id]);
-        const r = (requested[n] ??= { gpus: 0, pods: [] });
-        r.gpus += gpusRequested(p);
-        r.pods.push(id);
+        add(requested, n, p, id);
+        add(requestedNs, p.getNs(), p, id);
       }
     }
     this.gpuPodsByNode = byNode;
     this.requestedByNode = requested;
+    this.requestedByNamespace = requestedNs;
     this.pending = pods.filter((p) => p.getStatusPhase() === "Pending" && requestsGpu(p)).flatMap(pendingOf);
 
     const candidates =
@@ -332,6 +341,7 @@ export class GpuScraper {
       gpus,
       exporters: scraped,
       requestedByNode: this.requestedByNode,
+      requestedByNamespace: this.requestedByNamespace,
       pending: this.pending,
     };
   }

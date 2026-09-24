@@ -16,6 +16,7 @@ import {
   sortRows,
   totalPowerW,
 } from "./aggregate";
+import { aggregateNamespaces, migFree, type NamespaceRow } from "./namespaces";
 import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
 import { GpuScraper, type ProbeResult } from "./scraper";
 
@@ -117,6 +118,13 @@ export class GpuStore {
     return out.sort((a, b) => b.vramUsedMiB - a.vramUsedMiB);
   }
 
+  /** Per namespace: requested vs in use vs idle vs waiting ("whose GPUs are these?"). */
+  @computed get namespaceRows(): NamespaceRow[] {
+    const snap = this.snapshot;
+    if (!snap) return [];
+    return aggregateNamespaces(snap.requestedByNamespace, this.rows, this.idleRows, snap.pending);
+  }
+
   /** Unscheduled GPU pods, oldest first, with hints the scheduler message does not give. */
   @computed get pendingRows(): PendingRow[] {
     const nodes: NodeGpuResources[] = this.nodes.map((n) => ({ name: n.name, allocatable: n.gpuResources }));
@@ -157,6 +165,7 @@ export class GpuStore {
       a.capacity = n.capacity;
       a.allocatable = n.allocatable;
       a.unhealthy = Math.max(0, n.capacity - n.allocatable);
+      a.migFree = migFree(n.gpuResources, snap?.requestedByNode[n.name]?.byResource ?? {});
     }
     if (snap) {
       for (const [node, r] of Object.entries(snap.requestedByNode)) {
