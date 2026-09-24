@@ -72,11 +72,17 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
     title_: (r) =>
       (r.sharedWith ?? 1) > 1
         ? `${r.gpuUtilPct.toFixed(1)}% for the whole device, shared by ${r.sharedWith} pods; dcgm-exporter cannot split it per pod`
-        : `${r.gpuUtilPct.toFixed(1)}%`,
+        : r.timeSliced
+          ? `${r.gpuUtilPct.toFixed(1)}% for the whole device: the node time-slices its GPUs, so other pods may share it`
+          : `${r.gpuUtilPct.toFixed(1)}%`,
     render: (r) => (
       <>
         <UtilBar pct={r.gpuUtilPct} />
-        {(r.sharedWith ?? 1) > 1 && <span className="gpuext-badge gpuext-shared">shared ×{r.sharedWith}</span>}
+        {(r.sharedWith ?? 1) > 1 ? (
+          <span className="gpuext-badge gpuext-shared">shared ×{r.sharedWith}</span>
+        ) : (
+          r.timeSliced && <span className="gpuext-badge gpuext-shared">time-sliced</span>
+        )}
       </>
     ),
   },

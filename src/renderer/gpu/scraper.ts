@@ -24,7 +24,7 @@ import {
 import { gpuRequestsOf, type PendingGpuPod } from "./pending";
 import { classifyMetrics, parsePrometheusText } from "./prom";
 
-import type { ExporterPod, ExporterScrape, GpuDevice, PodGPU, Snapshot } from "./types";
+import type { ExporterPod, ExporterScrape, GpuDevice, GpuRequests, PodGPU, PodState, Snapshot } from "./types";
 
 type Pod = Renderer.K8sApi.Pod;
 
@@ -162,8 +162,8 @@ export class GpuScraper {
   private discoveredAt = 0;
   /** Pods requesting nvidia.com/gpu grouped by node, refreshed with discovery. */
   private gpuPodsByNode = new Map<string, string[]>();
-  private requestedByNode: Record<string, { gpus: number; pods: string[] }> = {};
-  private pending: PendingGpuPod[] = [];
+  /** Pod-derived state from the last successful pod list (undefined until one succeeds). */
+  podState: PodState | undefined = undefined;
   /** Outcome of the last discovery pass, for diagnostics in the UI and logs. */
   lastProbes: ProbeResult[] = [];
   lastCandidateCount = 0;
@@ -192,20 +192,35 @@ export class GpuScraper {
     const pods = await this.deps.listPods();
     this.lastPodCount = pods.length;
     const byNode = new Map<string, string[]>();
-    const requested: Record<string, { gpus: number; pods: string[] }> = {};
+    const requested: Record<string, GpuRequests> = {};
+    const requestedNs: Record<string, GpuRequests> = {};
+    const add = (m: Record<string, GpuRequests>, key: string, p: Pod, id: string) => {
+      const r = (m[key] ??= { gpus: 0, byResource: {}, pods: [] });
+      r.gpus += gpusRequested(p);
+      for (const [k, v] of Object.entries(gpuRequestsOf(p.getContainers())))
+        r.byResource[k] = (r.byResource[k] ?? 0) + v;
+      r.pods.push(id);
+    };
     for (const p of pods) {
-      if (p.getStatusPhase() === "Running" && requestsGpu(p)) {
-        const n = p.getNodeName() ?? "";
-        const id = `${p.getNs()}/${p.getName()}`;
-        byNode.set(n, [...(byNode.get(n) ?? []), id]);
-        const r = (requested[n] ??= { gpus: 0, pods: [] });
-        r.gpus += gpusRequested(p);
-        r.pods.push(id);
+      if (!requestsGpu(p)) continue;
+      const phase = p.getStatusPhase();
+      const n = p.getNodeName() ?? "";
+      const id = `${p.getNs()}/${p.getName()}`;
+      if (phase === "Running") byNode.set(n, [...(byNode.get(n) ?? []), id]);
+      // The scheduler counts a device as taken as soon as the pod is bound, not when it starts running
+      // (image pull, init containers), so bound Pending pods hold devices too.
+      if (phase === "Running" || (phase === "Pending" && n)) {
+        add(requested, n, p, id);
+        add(requestedNs, p.getNs(), p, id);
       }
     }
     this.gpuPodsByNode = byNode;
-    this.requestedByNode = requested;
-    this.pending = pods.filter((p) => p.getStatusPhase() === "Pending" && requestsGpu(p)).flatMap(pendingOf);
+    this.podState = {
+      listedAt: new Date(),
+      requestedByNode: requested,
+      requestedByNamespace: requestedNs,
+      pending: pods.filter((p) => p.getStatusPhase() === "Pending" && requestsGpu(p)).flatMap(pendingOf),
+    };
 
     const candidates =
       this.explicit.length > 0
@@ -325,14 +340,6 @@ export class GpuScraper {
       gpus = gpus.concat(fromEnricher.filter((d) => !covered.has(d.node)));
     }
 
-    return {
-      scrapedAt: new Date(),
-      mode,
-      rows,
-      gpus,
-      exporters: scraped,
-      requestedByNode: this.requestedByNode,
-      pending: this.pending,
-    };
+    return { scrapedAt: new Date(), mode, rows, gpus, exporters: scraped };
   }
 }

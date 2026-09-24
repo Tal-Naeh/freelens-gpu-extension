@@ -5,6 +5,7 @@ import { PodGpuDetails } from "./components/pod-gpu-details";
 import { AllocationPage } from "./pages/allocation-page";
 import { DevicesPage } from "./pages/devices-page";
 import { ExportersPage } from "./pages/exporters-page";
+import { NamespacesPage } from "./pages/namespaces-page";
 import { PendingPage } from "./pages/pending-page";
 import { PodsPage } from "./pages/pods-page";
 import { WastePage } from "./pages/waste-page";
@@ -12,6 +13,7 @@ import { WastePage } from "./pages/waste-page";
 export default class GpuExtensionRenderer extends Renderer.LensExtension {
   clusterPages = [
     { id: "gpu-pods", components: { Page: () => <PodsPage extension={this} /> } },
+    { id: "gpu-namespaces", components: { Page: () => <NamespacesPage extension={this} /> } },
     { id: "gpu-devices", components: { Page: () => <DevicesPage extension={this} /> } },
     { id: "gpu-idle", components: { Page: () => <WastePage extension={this} /> } },
     { id: "gpu-allocation", components: { Page: () => <AllocationPage extension={this} /> } },
@@ -22,6 +24,13 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
   clusterPageMenus = [
     { id: "gpu", title: "GPU", components: { Icon: GpuIcon } },
     { id: "gpu-pods", parentId: "gpu", target: { pageId: "gpu-pods" }, title: "Pods", components: {} },
+    {
+      id: "gpu-namespaces",
+      parentId: "gpu",
+      target: { pageId: "gpu-namespaces" },
+      title: "Namespaces",
+      components: {},
+    },
     { id: "gpu-devices", parentId: "gpu", target: { pageId: "gpu-devices" }, title: "GPUs", components: {} },
     { id: "gpu-idle", parentId: "gpu", target: { pageId: "gpu-idle" }, title: "Idle & waste", components: {} },
     {

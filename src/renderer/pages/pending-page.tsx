@@ -79,6 +79,7 @@ export const PendingPage = observer(({ extension }: { extension: Renderer.LensEx
     <PageShell
       extension={extension}
       title="Pods waiting for a GPU"
+      podOnly
       subtitle={
         <>
           Pending pods the scheduler has not placed that request a GPU resource (<code>nvidia.com/gpu</code>,{" "}

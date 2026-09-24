@@ -71,7 +71,7 @@ export function explainPending(p: PendingGpuPod, nodes: NodeGpuResources[]): str
       if (have) h += ` The cluster offers: ${have}.`;
       if (
         res === "nvidia.com/gpu" &&
-        nodes.some((n) => Object.keys(n.allocatable).some((k) => k.startsWith("nvidia.com/mig-")))
+        nodes.some((n) => Object.entries(n.allocatable).some(([k, v]) => k.startsWith("nvidia.com/mig-") && v > 0))
       ) {
         h += " GPUs are partitioned (MIG, strategy=mixed): request a slice such as nvidia.com/mig-1g.10gb instead.";
       }

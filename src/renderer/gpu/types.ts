@@ -18,6 +18,11 @@ export interface PodGPU {
   source?: ExporterKind;
   /** Pods on this row's device (set by the store; >1 means the util/power shown are device-level). */
   sharedWith?: number;
+  /**
+   * The node time-slices its GPUs (nvidia.com/gpu.replicas > 1) and the row is from DCGM: other pods may share the
+   * device even if the exporter only attributes it to this one, so treat the numbers as device-level.
+   */
+  timeSliced?: boolean;
   namespace: string;
   pod: string;
   node: string;
@@ -73,15 +78,34 @@ export type { PendingGpuPod } from "./pending";
 
 import type { PendingGpuPod } from "./pending";
 
+/** GPU requests of pods holding devices: device count, per resource name, and the pods. */
+export interface GpuRequests {
+  gpus: number;
+  /** Requested per resource name, e.g. { "nvidia.com/mig-1g.10gb": 3 } (includes *.shared). */
+  byResource: Record<string, number>;
+  pods: string[];
+}
+
 export interface Snapshot {
   scrapedAt: Date;
   mode: Mode;
   rows: PodGPU[];
   gpus: GpuDevice[];
   exporters: ExporterScrape[];
-  /** nvidia.com/gpu requested (sum of container limits, falling back to requests) by node, from the pod list. */
-  requestedByNode: Record<string, { gpus: number; pods: string[] }>;
-  /** Unscheduled pods that request a GPU resource, from the same pod list. */
+}
+
+/**
+ * What the pod list alone says, independent of any exporter: kept apart from
+ * Snapshot so Pending / Namespaces / Allocation still work on a cluster whose
+ * GPU exporter is missing or failing.
+ */
+export interface PodState {
+  listedAt: Date;
+  /** GPU requests of pods holding devices (Running, or Pending but already bound to a node), by node. */
+  requestedByNode: Record<string, GpuRequests>;
+  /** Same, grouped by namespace. */
+  requestedByNamespace: Record<string, GpuRequests>;
+  /** Unscheduled pods that request a GPU resource. */
   pending: PendingGpuPod[];
 }
 
@@ -105,6 +129,8 @@ export interface AllocationRow {
   gpuType?: string;
   capacity: number;
   allocatable: number;
+  /** Free MIG slices per profile (allocatable - requested); empty when the node has no MIG resources. */
+  migFree?: { profile: string; free: number; total: number }[];
   /** capacity - allocatable: devices the device plugin marked unhealthy (or reserved). */
   unhealthy: number;
   requested: number;

@@ -11,12 +11,15 @@ export interface PageShellProps {
   title: string;
   subtitle?: React.ReactNode;
   children: React.ReactNode;
+  /** The page only needs the pod list (Pending, Namespaces): render it even when no exporter snapshot exists. */
+  podOnly?: boolean;
 }
 
 /** Common chrome for every GPU page: title + version badge, scrape status, refresh, scrolling body. */
-export const PageShell = observer(({ extension, title, subtitle, children }: PageShellProps) => {
+export const PageShell = observer(({ extension, title, subtitle, children, podOnly }: PageShellProps) => {
   React.useEffect(() => gpuStore.subscribe(), []);
   const snap = gpuStore.snapshot;
+  const ready = !!snap || (!!podOnly && !!gpuStore.podState);
   const kinds = snap ? [...new Set(snap.exporters.map((e) => e.kind))].join(", ") : "";
   return (
     <div className="gpuext-page">
@@ -40,10 +43,10 @@ export const PageShell = observer(({ extension, title, subtitle, children }: Pag
       {subtitle && <div className="gpuext-hint gpuext-subtitle">{subtitle}</div>}
       {gpuStore.error && <div className="gpuext-error">{gpuStore.error}</div>}
       <div className="gpuext-body">
-        {!snap && !gpuStore.loading && !gpuStore.error && (
+        {!ready && !gpuStore.loading && !gpuStore.error && (
           <div className="gpuext-empty">Waiting for the first scrape…</div>
         )}
-        {snap && children}
+        {ready && children}
       </div>
     </div>
   );

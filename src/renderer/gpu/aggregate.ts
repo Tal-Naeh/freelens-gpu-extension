@@ -549,12 +549,12 @@ export function podsPerDevice(devs: GpuDevice[]): Map<string, number> {
   return new Map(devs.map((d) => [`${d.node}/${d.gpu}`, d.pods.length]));
 }
 
-/** Number of pods sharing the busiest device of a DCGM pod row (1 = not shared). */
-export function sharedWith(r: PodGPU, perDevice: Map<string, number>, replicasOnNode = 1): number {
+/** Number of pods the exporter attributes to the busiest device of a DCGM pod row (1 = not shared). */
+export function sharedWith(r: PodGPU, perDevice: Map<string, number>): number {
   if (r.source !== "dcgm" || r.gpuIndex) return 1;
   let n = 1;
   for (const g of r.gpus) n = Math.max(n, perDevice.get(`${r.node}/${g}`) ?? 1);
-  return Math.max(n, replicasOnNode > 1 ? replicasOnNode : 1);
+  return n;
 }
 
 /**

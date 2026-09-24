@@ -64,6 +64,32 @@ const ALLOC_COLUMNS: Column<AllocationRow>[] = [
     ),
   },
   {
+    key: "migFree",
+    title: "MIG free",
+    width: 190,
+    min: 70,
+    value: (r) => (r.migFree ?? []).reduce((s, m) => s + m.free, 0),
+    render: (r) =>
+      r.migFree && r.migFree.length > 0 ? (
+        <span className="gpuext-mono">
+          {r.migFree.map((m, i) => (
+            <span key={m.profile}>
+              {i > 0 && " · "}
+              <span className={m.free === 0 ? "gpuext-warn" : ""}>
+                {m.profile} {m.free}/{m.total}
+              </span>
+            </span>
+          ))}
+        </span>
+      ) : (
+        <span className="gpuext-dim">–</span>
+      ),
+    title_: (r) =>
+      r.migFree && r.migFree.length > 0
+        ? `free MIG slices per profile (allocatable − requested by running pods): ${r.migFree.map((m) => `${m.profile} ${m.free} of ${m.total}`).join(", ")}`
+        : "no MIG resources on this node",
+  },
+  {
     key: "devices",
     title: "Devices seen",
     width: 110,
