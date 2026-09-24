@@ -31,6 +31,19 @@ const ALLOC_COLUMNS: Column<AllocationRow>[] = [
   },
   { key: "allocatable", title: "Allocatable", width: 100, min: 60, num: true, value: (r) => r.allocatable },
   {
+    key: "unhealthy",
+    title: "Unhealthy",
+    width: 95,
+    min: 60,
+    num: true,
+    value: (r) => r.unhealthy,
+    render: (r) => <span className={r.unhealthy > 0 ? "gpuext-hot" : "gpuext-dim"}>{r.unhealthy}</span>,
+    title_: (r) =>
+      r.unhealthy > 0
+        ? `${r.unhealthy} device(s) in capacity but not allocatable: the device plugin marked them unhealthy (XID, fallen off the bus) or they are reserved`
+        : "capacity == allocatable",
+  },
+  {
     key: "requested",
     title: "Requested",
     width: 100,
@@ -102,6 +115,7 @@ export const AllocationPage = observer(({ extension }: { extension: Renderer.Len
   const cap = rows.reduce((s, r) => s + r.allocatable, 0);
   const req = rows.reduce((s, r) => s + r.requested, 0);
   const busy = rows.reduce((s, r) => s + r.busyDevices, 0);
+  const bad = rows.reduce((s, r) => s + r.unhealthy, 0);
   return (
     <PageShell
       extension={extension}
@@ -113,7 +127,8 @@ export const AllocationPage = observer(({ extension }: { extension: Renderer.Len
           {rows.length > 0 && (
             <>
               {" "}
-              Cluster: {cap} allocatable, {req} requested, {busy} measured busy.
+              Cluster: {cap} allocatable, {req} requested, {busy} measured busy
+              {bad > 0 && <span className="gpuext-hot">, {bad} unhealthy</span>}.
             </>
           )}
           {gpuStore.nodesError && <span className="gpuext-error"> Node list failed: {gpuStore.nodesError}</span>}

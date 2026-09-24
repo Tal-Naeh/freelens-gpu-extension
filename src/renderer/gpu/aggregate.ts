@@ -35,7 +35,16 @@ const WANTED_DCGM = [
 // was running, so a card can show 100% while doing little; these counters are off unless DCP metrics are enabled.
 const PROF_DCGM = ["DCGM_FI_PROF_SM_ACTIVE", "DCGM_FI_PROF_PIPE_TENSOR_ACTIVE", "DCGM_FI_PROF_DRAM_ACTIVE"];
 
-const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL", ...PROF_DCGM];
+// Health gauges. XID_ERRORS is the code of the last XID seen (0 = none); the others count errors / rows.
+// dcgm-exporter reports remap fields for whole GPUs only (not per MIG slice).
+const HEALTH_DCGM = [
+  "DCGM_FI_DEV_XID_ERRORS",
+  "DCGM_FI_DEV_ECC_DBE_VOL_TOTAL",
+  "DCGM_FI_DEV_ROW_REMAP_FAILURE",
+  "DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS",
+];
+
+const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL", ...PROF_DCGM, ...HEALTH_DCGM];
 
 /** DCGM: flatten wanted families into (ns, pod, gpu, node, metric, value). */
 export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSample[] {
@@ -405,6 +414,18 @@ export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuD
         case "DCGM_FI_PROF_DRAM_ACTIVE":
           d.dramActivePct = Math.max(d.dramActivePct ?? 0, m.value * 100);
           break;
+        case "DCGM_FI_DEV_XID_ERRORS":
+          d.lastXid = Math.max(d.lastXid ?? 0, m.value);
+          break;
+        case "DCGM_FI_DEV_ECC_DBE_VOL_TOTAL":
+          d.eccDbe = Math.max(d.eccDbe ?? 0, m.value);
+          break;
+        case "DCGM_FI_DEV_ROW_REMAP_FAILURE":
+          d.rowRemapFailure = Math.max(d.rowRemapFailure ?? 0, m.value);
+          break;
+        case "DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS":
+          d.uncorrectableRemappedRows = Math.max(d.uncorrectableRemappedRows ?? 0, m.value);
+          break;
       }
     }
   }
@@ -487,6 +508,37 @@ export function aggregateDevicesEnricher(results: EnricherResult[]): GpuDevice[]
 export const isGpuResourceName = (k: string): boolean =>
   k === "nvidia.com/gpu" || k.startsWith("nvidia.com/gpu.") || k.startsWith("nvidia.com/mig-");
 const isShared = (k: string) => k.endsWith(".shared");
+
+export type HealthLevel = "ok" | "warn" | "bad" | "unknown";
+
+/**
+ * One device's health from the DCGM health gauges. "unknown" when the exporter
+ * reports none of them for this device (e.g. MIG slices, or counters not in the
+ * exporter's CSV) — never a reassuring "ok" without data.
+ */
+export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string } {
+  const issues: string[] = [];
+  let level: HealthLevel = "ok";
+  if ((d.lastXid ?? 0) > 0) {
+    issues.push(`XID ${d.lastXid}`);
+    level = "bad";
+  }
+  if ((d.eccDbe ?? 0) > 0) {
+    issues.push(`${d.eccDbe} uncorrectable ECC`);
+    level = "bad";
+  }
+  if ((d.rowRemapFailure ?? 0) > 0) {
+    issues.push("row remap failed");
+    level = "bad";
+  }
+  if ((d.uncorrectableRemappedRows ?? 0) > 0) {
+    issues.push(`${d.uncorrectableRemappedRows} rows remapped (reset pending)`);
+    if (level === "ok") level = "warn";
+  }
+  if (issues.length > 0) return { level, text: issues.join(", ") };
+  const known = [d.lastXid, d.eccDbe, d.rowRemapFailure, d.uncorrectableRemappedRows].some((v) => v !== undefined);
+  return known ? { level: "ok", text: "OK" } : { level: "unknown", text: "not exported" };
+}
 
 /**
  * How many workload pods share each device, keyed "node/gpu". A pod row whose

@@ -53,6 +53,11 @@ export interface GpuDevice {
   smActivePct?: number;
   tensorActivePct?: number;
   dramActivePct?: number;
+  /** DCGM health gauges, when exported: last XID code (0 = none), uncorrectable ECC count, row remap failure/pending. */
+  lastXid?: number;
+  eccDbe?: number;
+  rowRemapFailure?: number;
+  uncorrectableRemappedRows?: number;
   /** Workload pods seen on this device ("ns/pod"). */
   pods: string[];
 }
@@ -100,6 +105,8 @@ export interface AllocationRow {
   gpuType?: string;
   capacity: number;
   allocatable: number;
+  /** capacity - allocatable: devices the device plugin marked unhealthy (or reserved). */
+  unhealthy: number;
   requested: number;
   requestingPods: string[];
   /** Devices reporting on this node (0 if no exporter covers it). */
