@@ -56,6 +56,10 @@ export interface ExporterScrape extends ExporterPod {
   error?: string;
 }
 
+export type { PendingGpuPod } from "./pending";
+
+import type { PendingGpuPod } from "./pending";
+
 export interface Snapshot {
   scrapedAt: Date;
   mode: Mode;
@@ -64,6 +68,8 @@ export interface Snapshot {
   exporters: ExporterScrape[];
   /** nvidia.com/gpu requested (sum of container limits, falling back to requests) by node, from the pod list. */
   requestedByNode: Record<string, { gpus: number; pods: string[] }>;
+  /** Unscheduled pods that request a GPU resource, from the same pod list. */
+  pending: PendingGpuPod[];
 }
 
 export interface HistoryPoint {
