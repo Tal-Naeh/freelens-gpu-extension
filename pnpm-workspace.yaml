@@ -1,9 +1,10 @@
-onlyBuiltDependencies:
-  - '@parcel/watcher'
-  - electron
-  - esbuild
-  - node-pty
-  - playwright
+# pnpm 11+: allowBuilds replaces onlyBuiltDependencies (same approvals as before)
+allowBuilds:
+  '@parcel/watcher': true
+  electron: true
+  esbuild: true
+  node-pty: true
+  playwright: true
 
 shellEmulator: true
 
