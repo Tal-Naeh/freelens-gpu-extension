@@ -8,8 +8,10 @@ import {
   aggregateDevicesEnricher,
   buildEnricherRows,
   extractDcgmSamples,
+  gpuResourceCount,
   sortDevices,
   sortRows,
+  totalPowerW,
 } from "../aggregate";
 import { classifyMetrics, parsePrometheusText } from "../prom";
 
@@ -51,7 +53,11 @@ describe("dcgm pod attribution", () => {
     expect(vllm.vramUsedMiB).toBe(135000);
     expect(vllm.vramUsedMiB + vllm.vramFreeMiB).toBe(162000);
     expect(vllm.powerWatts).toBe(511);
-    expect(vllm.node).toBe("node-a"); // Hostname label wins over exporter node
+    expect(vllm.node).toBe("exporter-node"); // exporter pod's nodeName wins over the Hostname label
+  });
+  it("uses the Hostname label only when the exporter node is unknown", () => {
+    const r = aggregateByPod(extractDcgmSamples(fams("dcgm_pod_labels.prom"), ""));
+    expect(byPod(r, "ml", "vllm-0").node).toBe("node-a");
   });
   it("falls back to per-GPU rows for unattributed samples", () => {
     const un = extractDcgmSamples(fams("dcgm_pod_labels.prom"), "exporter-node").filter((s) => !s.pod);
@@ -99,7 +105,7 @@ describe("per-device aggregation", () => {
     expect(devs.map((d) => d.gpu)).toEqual(["0", "1", "2", "3"]);
     const g0 = devs[0];
     expect(g0).toMatchObject({
-      node: "node-a",
+      node: "exporter-node",
       uuid: "GPU-aaaa",
       model: "NVIDIA A100-SXM4-80GB",
       utilPct: 87,
@@ -136,5 +142,51 @@ describe("per-device aggregation", () => {
     expect(g0.vramUsedMiB).toBe(70 * 1024); // 40+10+20 GiB
     expect(g0.utilPct).toBe(60); // max process util (no device-level gauge in fixture)
     expect(g0.pods).toEqual(["embeddings/tei-1", "ml/vllm-0"]);
+  });
+});
+
+describe("util source precedence", () => {
+  // Non-MIG cards with DCP metrics enabled emit GPU_UTIL and PROF_GR_ENGINE_ACTIVE for the same GPU.
+  const both = parsePrometheusText(
+    [
+      'DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-a",namespace="ml",pod="p"} 80',
+      'DCGM_FI_PROF_GR_ENGINE_ACTIVE{gpu="0",UUID="GPU-a",namespace="ml",pod="p"} 0.7',
+      'DCGM_FI_DEV_GPU_UTIL{gpu="1",UUID="GPU-b",namespace="ml",pod="p"} 40',
+      'DCGM_FI_PROF_GR_ENGINE_ACTIVE{gpu="1",UUID="GPU-b",namespace="ml",pod="p"} 0.9',
+    ].join("\n"),
+  );
+  it("pod rows use GPU_UTIL and do not add GR_ENGINE_ACTIVE on top", () => {
+    const [row] = aggregateByPod(extractDcgmSamples(both, "n"));
+    expect(row.gpuCount).toBe(2);
+    expect(row.gpuUtilPct).toBe(60);
+  });
+  it("devices prefer GPU_UTIL even when GR_ENGINE_ACTIVE is higher", () => {
+    const devs = sortDevices(aggregateDevicesDcgm(both, "n"));
+    expect(devs.map((d) => d.utilPct)).toEqual([80, 40]);
+  });
+});
+
+describe("power and resource totals", () => {
+  it("counts a MIG card's power once, not once per slice", () => {
+    const f = parsePrometheusText(
+      [7, 8, 9]
+        .map((id) => `DCGM_FI_DEV_POWER_USAGE{gpu="0",UUID="GPU-a",GPU_I_ID="${id}",GPU_I_PROFILE="1g.10gb"} 250`)
+        .concat(['DCGM_FI_DEV_POWER_USAGE{gpu="1",UUID="GPU-b"} 100'])
+        .join("\n"),
+    );
+    const devs = aggregateDevicesDcgm(f, "dgx-1");
+    expect(devs).toHaveLength(4);
+    expect(totalPowerW(devs)).toBe(350);
+  });
+  it("counts nvidia.com/gpu and MIG resources (mig.strategy=mixed)", () => {
+    expect(
+      gpuResourceCount({
+        "nvidia.com/gpu": "2",
+        "nvidia.com/mig-1g.10gb": "7",
+        "nvidia.com/mig-3g.40gb": "2",
+        cpu: "96",
+      }),
+    ).toBe(11);
+    expect(gpuResourceCount(undefined)).toBe(0);
   });
 });

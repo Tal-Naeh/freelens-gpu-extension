@@ -77,7 +77,7 @@ export interface IdleRow extends PodGPU {
   idleMinutes: number;
   /** Number of samples backing idleMinutes. */
   samples: number;
-  /** Peak utilisation seen in the window. */
+  /** Peak utilisation over the retained history window (up to 6 h), not just the idle stretch. */
   peakUtilPct: number;
 }
 

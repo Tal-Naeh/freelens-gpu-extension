@@ -7,7 +7,7 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
-import { sortDevices, sortRows } from "./aggregate";
+import { gpuResourceCount, sortDevices, sortRows, totalPowerW } from "./aggregate";
 import { GpuScraper, type ProbeResult } from "./scraper";
 
 import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, Snapshot } from "./types";
@@ -79,11 +79,9 @@ export class GpuStore {
       const h = this.history.get(`${r.namespace}/${r.pod}`) ?? [];
       // walk back from the newest sample while util stays below threshold
       let i = h.length - 1;
-      let peak = 0;
-      while (i >= 0 && h[i].utilPct < IDLE_UTIL_PCT) {
-        peak = Math.max(peak, h[i].utilPct);
-        i--;
-      }
+      while (i >= 0 && h[i].utilPct < IDLE_UTIL_PCT) i--;
+      // peak over the whole retained window, so a pod that was busy earlier stands out
+      const peak = h.reduce((m, p) => Math.max(m, p.utilPct), r.gpuUtilPct);
       const idleSince = h[i + 1]?.t ?? Date.now();
       const samples = h.length - 1 - i;
       out.push({
@@ -140,12 +138,14 @@ export class GpuStore {
         if (d.utilPct >= IDLE_UTIL_PCT || d.pods.length > 0) a.busyDevices++;
         a.vramUsedMiB += d.vramUsedMiB;
         a.vramTotalMiB += d.vramTotalMiB;
-        a.powerWatts += d.powerWatts;
         utilSum.set(d.node, (utilSum.get(d.node) ?? 0) + d.utilPct);
         if (!a.gpuType && d.model) a.gpuType = d.model;
       }
       for (const a of byNode.values()) {
-        if (a.devices > 0) a.avgUtilPct = (utilSum.get(a.node) ?? 0) / a.devices;
+        if (a.devices > 0) {
+          a.avgUtilPct = (utilSum.get(a.node) ?? 0) / a.devices;
+          a.powerWatts = totalPowerW(this.devicesForNode(a.node));
+        }
       }
     }
     return [...byNode.values()].sort((x, y) => (x.node < y.node ? -1 : 1));
@@ -192,15 +192,15 @@ export class GpuStore {
     try {
       const list = (await Renderer.K8sApi.nodesApi.list()) ?? [];
       const infos: NodeInfo[] = list.map((n) => {
-        const cap = (n.status?.capacity as Record<string, string> | undefined)?.["nvidia.com/gpu"];
-        const alloc = (n.status?.allocatable as Record<string, string> | undefined)?.["nvidia.com/gpu"];
+        const cap = gpuResourceCount(n.status?.capacity as Record<string, string> | undefined);
+        const alloc = gpuResourceCount(n.status?.allocatable as Record<string, string> | undefined);
         const labels = n.metadata.labels ?? {};
         const gpuType =
           labels["nvidia.com/gpu.product"] ??
           labels["gpu-type"] ??
           labels["cloud.google.com/gke-accelerator"] ??
           labels["accelerator"];
-        return { name: n.getName(), gpuType, capacity: Number(cap ?? 0) || 0, allocatable: Number(alloc ?? 0) || 0 };
+        return { name: n.getName(), gpuType, capacity: cap, allocatable: alloc };
       });
       runInAction(() => {
         this.nodes = infos;

@@ -18,6 +18,7 @@ import {
   aggregateDevicesEnricher,
   buildEnricherRows,
   extractDcgmSamples,
+  gpuResourceCount,
 } from "./aggregate";
 import { classifyMetrics, parsePrometheusText } from "./prom";
 
@@ -55,14 +56,13 @@ function metricsPort(pod: Pod): number {
   return ports[0]?.containerPort ?? 0;
 }
 
-/** nvidia.com/gpu requested by a pod: sum of container limits, falling back to requests. */
+/** GPU devices (nvidia.com/gpu + MIG slices) requested by a pod: container limits, falling back to requests. */
 function gpusRequested(pod: Pod): number {
   let n = 0;
   for (const c of pod.getContainers()) {
     const r = c.resources ?? {};
-    const lim = (r.limits as Record<string, string> | undefined)?.["nvidia.com/gpu"];
-    const req = (r.requests as Record<string, string> | undefined)?.["nvidia.com/gpu"];
-    n += Number(lim ?? req ?? 0) || 0;
+    const lim = gpuResourceCount(r.limits as Record<string, string> | undefined);
+    n += lim > 0 ? lim : gpuResourceCount(r.requests as Record<string, string> | undefined);
   }
   return n;
 }
@@ -268,18 +268,24 @@ export class GpuScraper {
     const enrichers = ok.filter((b) => b.ex.kind === "enricher");
     const dcgms = ok.filter((b) => b.ex.kind === "dcgm");
 
-    let rows: PodGPU[] = [];
+    // A scrape failing usually means the exporter pod was replaced; rediscover next tick.
+    if (ok.length < exporters.length) this.invalidate();
+
+    // Pod rows: the per-process exporter where it reports, DCGM for every other
+    // node (mixed node pools must not drop the DCGM-only nodes).
     let mode: Snapshot["mode"] = "pod";
-    if (enrichers.length > 0) {
-      rows = buildEnricherRows(enrichers.map((b) => ({ fams: b.fams, node: b.ex.nodeName })));
-    }
-    if (rows.length === 0 && dcgms.length > 0) {
-      const samples = dcgms.flatMap((b) => extractDcgmSamples(b.fams, b.ex.nodeName));
-      rows = aggregateByPod(samples);
-      if (rows.length === 0) {
-        rows = aggregateByGPU(samples).map((r) => ({ ...r, hintPods: this.gpuPodsByNode.get(r.node) ?? [] }));
-        if (rows.length > 0) mode = "gpu";
+    let rows: PodGPU[] =
+      enrichers.length > 0 ? buildEnricherRows(enrichers.map((b) => ({ fams: b.fams, node: b.ex.nodeName }))) : [];
+    const enricherNodes = new Set(rows.map((r) => r.node));
+    const dcgmRest = dcgms.filter((b) => !enricherNodes.has(b.ex.nodeName));
+    if (dcgmRest.length > 0) {
+      const samples = dcgmRest.flatMap((b) => extractDcgmSamples(b.fams, b.ex.nodeName));
+      let dcgmRows = aggregateByPod(samples);
+      if (dcgmRows.length === 0) {
+        dcgmRows = aggregateByGPU(samples).map((r) => ({ ...r, hintPods: this.gpuPodsByNode.get(r.node) ?? [] }));
+        if (dcgmRows.length > 0) mode = "gpu";
       }
+      rows = rows.concat(dcgmRows);
     }
 
     // Devices: prefer DCGM (true device gauges); use the per-process exporter

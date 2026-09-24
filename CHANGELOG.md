@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.4
+
+- Fix: pod GPU % no longer double-counts on non-MIG cards that emit both `DCGM_FI_DEV_GPU_UTIL` and
+  `DCGM_FI_PROF_GR_ENGINE_ACTIVE` (DCP metrics on, e.g. A100/H100): `GPU_UTIL` wins, `GR_ENGINE_ACTIVE` only fills in
+  for MIG slices. Previously such a pod could show well over 100%.
+- Fix: power totals (GPUs subtitle, Node drawer, Allocation) count each physical card once instead of once per MIG slice.
+- Fix: `mig.strategy=mixed` clusters: pod requests and node capacity/allocatable now include `nvidia.com/mig-*`
+  resources, so Allocation, fallback-mode pod hints and "requested" are no longer zero on MIG nodes.
+- Fix: DCGM samples are attributed to the exporter pod's node; the `Hostname` label (the exporter pod name unless
+  `NODE_NAME` is set) is only a fallback. Node drawer and Allocation no longer miss or duplicate such nodes.
+- Fix: clusters running both a per-process exporter and dcgm-exporter keep the pods on DCGM-only nodes in the Pods view.
+- Fix: fallback-mode rows (no pod labels) on different nodes no longer share a React key, which could drop rows.
+- Fix: "Peak in window" on Idle & waste reports the peak over the retained history, not only the idle stretch (which
+  was always under 5%).
+- Fix: a failed exporter scrape re-runs discovery on the next tick instead of reusing a stale pod for up to 60 s.
+- UI: table row borders line up across columns (cells stretch to the row height; empty cells and GPU badges no longer
+  shift their border up or down).
+- UI: the Node drawer table hides the Node column instead of showing it empty.
+- Deps: override `dompurify` (≥3.4.16) and `decode-uri-component` (≥0.5.0), dev-only transitive deps of
+  `@freelensapp/core`, clearing the Dependabot alerts.
+- Docs: ARCHITECTURE.md attribution rules updated; Freelens v2 readiness checklist.
+
 ## 0.3.3
 
 - Fix: the heavier group separator in every table now follows the sorted column (namespace, node, physical GPU,

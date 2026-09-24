@@ -3,6 +3,7 @@ import { type Column, DataGrid } from "../components/data-grid";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { UtilBar } from "../components/util-bar";
+import { totalPowerW } from "../gpu/aggregate";
 import { gpuStore } from "../gpu/store";
 
 import type { Renderer } from "@freelensapp/extensions";
@@ -133,8 +134,7 @@ export const DevicesPage = observer(({ extension }: { extension: Renderer.LensEx
         devs.length > 0 && (
           <>
             {devs.length} device{devs.length === 1 ? "" : "s"} · {idle} with no pod and idle · total VRAM{" "}
-            {fmtMiB(devs.reduce((s, d) => s + d.vramTotalMiB, 0))} ·{" "}
-            {devs.reduce((s, d) => s + d.powerWatts, 0).toFixed(0)} W
+            {fmtMiB(devs.reduce((s, d) => s + d.vramTotalMiB, 0))} · {totalPowerW(devs).toFixed(0)} W
           </>
         )
       }

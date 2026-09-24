@@ -9,6 +9,8 @@ export interface GpuTableProps {
   rows: PodGPU[];
   /** Hide the namespace/pod/node columns when the context already implies them. */
   compact?: boolean;
+  /** Hide only the node column (node drawer). */
+  hideNode?: boolean;
 }
 
 const GpuBadges = ({ r }: { r: PodGPU }) =>
@@ -102,17 +104,22 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
 
 const COMPACT_HIDDEN = new Set(["namespace", "pod", "node"]);
 
-export function GpuTable({ rows, compact }: GpuTableProps) {
+export function GpuTable({ rows, compact, hideNode }: GpuTableProps) {
   const columns = React.useMemo(
-    () => (compact ? POD_COLUMNS.filter((c) => !COMPACT_HIDDEN.has(c.key)) : POD_COLUMNS),
-    [compact],
+    () =>
+      compact
+        ? POD_COLUMNS.filter((c) => !COMPACT_HIDDEN.has(c.key))
+        : hideNode
+          ? POD_COLUMNS.filter((c) => c.key !== "node")
+          : POD_COLUMNS,
+    [compact, hideNode],
   );
   return (
     <DataGrid
-      id={compact ? "pods.compact" : "pods.full"}
+      id={compact ? "pods.compact" : hideNode ? "pods.node" : "pods.full"}
       columns={columns}
       rows={rows}
-      rowKey={(r) => `${r.namespace}/${r.pod}/${r.gpus.join(",")}`}
+      rowKey={(r) => `${r.node}/${r.namespace}/${r.pod}/${r.gpus.join(",")}`}
       defaultSort={{ key: "gpu", dir: "asc" }}
       groupOf={physicalGPUGroup}
     />

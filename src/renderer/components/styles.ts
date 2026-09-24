@@ -8,7 +8,7 @@ export const gpuStyles = `
 .gpuext-status { color: var(--textColorSecondary); font-size: 12px; }
 .gpuext-error { color: var(--colorError); margin: var(--padding) 0; white-space: pre-wrap; }
 .gpuext-hint { color: var(--textColorSecondary); font-size: 12px; margin: var(--padding) 0; }
-.gpuext-grid { display: grid; width: max-content; min-width: 100%; font-size: 13px; align-items: center; }
+.gpuext-grid { display: grid; width: max-content; min-width: 100%; font-size: 13px; align-items: stretch; }
 .gpuext-row { display: contents; }
 .gpuext-cell { padding: 6px 10px; border-bottom: 1px solid var(--borderFaintColor); white-space: nowrap; min-width: 0; line-height: 20px; box-sizing: border-box; }
 .gpuext-head .gpuext-cell { position: sticky; top: 0; z-index: 1; background: var(--contentColor); font-weight: 500; color: var(--textColorSecondary); border-bottom: 1px solid var(--borderColor); }
@@ -30,7 +30,7 @@ export const gpuStyles = `
 .gpuext-bar.warn > span { background: var(--colorWarning); }
 .gpuext-bar.hot > span { background: var(--colorError); }
 .gpuext-bar.idle > span { background: var(--textColorTertiary); }
-.gpuext-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--borderFaintColor); margin-right: 4px; font-size: 12px; }
+.gpuext-badge { display: inline-block; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--borderFaintColor); margin-right: 4px; font-size: 12px; }
 .gpuext-details { font-size: 13px; }
 .gpuext-subtitle { margin-top: 0; }
 .gpuext-h3 { font-size: 13px; font-weight: 500; color: var(--textColorSecondary); margin: calc(var(--padding) * 2) 0 var(--padding); }

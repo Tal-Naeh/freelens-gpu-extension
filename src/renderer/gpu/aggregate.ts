@@ -45,7 +45,9 @@ export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSa
       // MIG: `gpu` is the physical card, GPU_I_ID the slice. Key on both or
       // several pods sharing card 0 collapse into one row.
       if (l.GPU_I_ID) gpu = `${gpu}:${l.GPU_I_ID}`;
-      const node = l.Hostname || exporterNode;
+      // The exporter pod's spec.nodeName is authoritative; DCGM's Hostname is
+      // the container hostname (= exporter pod name) unless NODE_NAME is set.
+      const node = exporterNode || l.Hostname || "";
       out.push({ ns, pod, gpu, node, name, val: m.value });
     }
   }
@@ -55,7 +57,21 @@ export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSa
 interface Acc {
   row: PodGPU;
   seenGPU: Set<string>;
-  utilSum: number;
+  /**
+   * Util per GPU, kept per source: non-MIG cards with profiling enabled emit
+   * BOTH GPU_UTIL and PROF_GR_ENGINE_ACTIVE, so summing them double-counts.
+   * GPU_UTIL wins when present; GR_ENGINE_ACTIVE covers MIG slices.
+   */
+  util: Map<string, { dev?: number; prof?: number }>;
+}
+
+function utilOf(acc: Acc, gpu: string) {
+  let u = acc.util.get(gpu);
+  if (!u) {
+    u = {};
+    acc.util.set(gpu, u);
+  }
+  return u;
 }
 
 function apply(acc: Acc, metric: string, gpu: string, v: number) {
@@ -68,10 +84,10 @@ function apply(acc: Acc, metric: string, gpu: string, v: number) {
   }
   switch (metric) {
     case "DCGM_FI_DEV_GPU_UTIL":
-      acc.utilSum += v;
+      utilOf(acc, gpu).dev = v;
       break;
     case "DCGM_FI_PROF_GR_ENGINE_ACTIVE":
-      acc.utilSum += v * 100; // ratio -> percent, to match GPU_UTIL semantics
+      utilOf(acc, gpu).prof = v * 100; // ratio -> percent, to match GPU_UTIL semantics
       break;
     case "DCGM_FI_DEV_FB_USED":
       acc.row.vramUsedMiB += v;
@@ -88,7 +104,9 @@ function apply(acc: Acc, metric: string, gpu: string, v: number) {
 function finalize(accs: Map<string, Acc>): PodGPU[] {
   const out: PodGPU[] = [];
   for (const acc of accs.values()) {
-    if (acc.row.gpuCount > 0) acc.row.gpuUtilPct = acc.utilSum / acc.row.gpuCount;
+    let utilSum = 0;
+    for (const u of acc.util.values()) utilSum += u.dev ?? u.prof ?? 0;
+    if (acc.row.gpuCount > 0) acc.row.gpuUtilPct = utilSum / acc.row.gpuCount;
     acc.row.gpus.sort();
     out.push(acc.row);
   }
@@ -115,7 +133,7 @@ export function aggregateByPod(samples: FlatSample[]): PodGPU[] {
     const key = `${s.ns}/${s.pod}`;
     let acc = accs.get(key);
     if (!acc) {
-      acc = { row: newRow({ namespace: s.ns, pod: s.pod, node: s.node }), seenGPU: new Set(), utilSum: 0 };
+      acc = { row: newRow({ namespace: s.ns, pod: s.pod, node: s.node }), seenGPU: new Set(), util: new Map() };
       accs.set(key, acc);
     } else if (!acc.row.node) {
       acc.row.node = s.node;
@@ -136,7 +154,7 @@ export function aggregateByGPU(samples: FlatSample[]): PodGPU[] {
       acc = {
         row: newRow({ namespace: "-", pod: `(gpu ${gpu})`, node: s.node, gpuIndex: gpu, gpus: [gpu], gpuCount: 1 }),
         seenGPU: new Set([gpu]),
-        utilSum: 0,
+        util: new Map(),
       };
       accs.set(key, acc);
     }
@@ -299,8 +317,9 @@ export function physicalGPUGroup(r: PodGPU): string {
 
 interface DevAcc {
   dev: GpuDevice;
-  utilSum: number;
-  utilN: number;
+  /** Max PROF_GR_ENGINE_ACTIVE (as %), used only when GPU_UTIL is absent. */
+  profUtil?: number;
+  hasDevUtil?: boolean;
   fbTotal?: number;
   pods: Set<string>;
 }
@@ -312,8 +331,6 @@ function devKey(node: string, gpu: string) {
 function newDev(node: string, gpu: string): DevAcc {
   return {
     dev: { node, gpu, utilPct: 0, vramUsedMiB: 0, vramTotalMiB: 0, powerWatts: 0, pods: [] },
-    utilSum: 0,
-    utilN: 0,
     pods: new Set(),
   };
 }
@@ -330,7 +347,9 @@ export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuD
       const l = m.labels;
       let gpu = l.gpu || l.device || l.UUID || "?";
       if (l.GPU_I_ID) gpu = `${gpu}:${l.GPU_I_ID}`;
-      const node = l.Hostname || exporterNode;
+      // The exporter pod's spec.nodeName is authoritative; DCGM's Hostname is
+      // the container hostname (= exporter pod name) unless NODE_NAME is set.
+      const node = exporterNode || l.Hostname || "";
       const k = devKey(node, gpu);
       let acc = accs.get(k);
       if (!acc) {
@@ -347,10 +366,11 @@ export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuD
       // Gauges repeat per pod label set; keep the max rather than summing.
       switch (name) {
         case "DCGM_FI_DEV_GPU_UTIL":
-          d.utilPct = Math.max(d.utilPct, m.value);
+          d.utilPct = acc.hasDevUtil ? Math.max(d.utilPct, m.value) : m.value;
+          acc.hasDevUtil = true;
           break;
         case "DCGM_FI_PROF_GR_ENGINE_ACTIVE":
-          d.utilPct = Math.max(d.utilPct, m.value * 100);
+          acc.profUtil = Math.max(acc.profUtil ?? 0, m.value * 100);
           break;
         case "DCGM_FI_DEV_FB_USED":
           d.vramUsedMiB = Math.max(d.vramUsedMiB, m.value);
@@ -372,6 +392,7 @@ export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuD
   }
   const out: GpuDevice[] = [];
   for (const acc of accs.values()) {
+    if (!acc.hasDevUtil && acc.profUtil !== undefined) acc.dev.utilPct = acc.profUtil;
     if (acc.dev.vramTotalMiB === 0) acc.dev.vramTotalMiB = acc.dev.vramUsedMiB + (acc.fbTotal ?? 0);
     acc.dev.pods = [...acc.pods].sort();
     out.push(acc.dev);
@@ -442,6 +463,36 @@ export function aggregateDevicesEnricher(results: EnricherResult[]): GpuDevice[]
     out.push(a.dev);
   }
   return out;
+}
+
+/**
+ * GPU devices in a resource list: `nvidia.com/gpu` plus every MIG resource
+ * (`nvidia.com/mig-1g.10gb`, ...) that the device plugin advertises under
+ * mig.strategy=mixed. Units are devices (whole GPUs or slices), matching
+ * what the exporters report per row.
+ */
+export function gpuResourceCount(resources: Record<string, string> | undefined): number {
+  let n = 0;
+  for (const [k, v] of Object.entries(resources ?? {})) {
+    if (k === "nvidia.com/gpu" || k.startsWith("nvidia.com/mig-")) n += Number(v) || 0;
+  }
+  return n;
+}
+
+/**
+ * Total power over devices, counted once per physical card. On MIG every
+ * slice repeats its card's DCGM_FI_DEV_POWER_USAGE, so a plain sum
+ * multiplies a 7-slice A100's draw by 7.
+ */
+export function totalPowerW(devs: GpuDevice[]): number {
+  const byCard = new Map<string, number>();
+  for (const d of devs) {
+    const card = `${d.node}/${d.uuid ?? d.gpu.split(":")[0]}`;
+    byCard.set(card, Math.max(byCard.get(card) ?? 0, d.powerWatts));
+  }
+  let sum = 0;
+  for (const w of byCard.values()) sum += w;
+  return sum;
 }
 
 /** Display order for devices: node, then GPU index (MIG slices under their card). */

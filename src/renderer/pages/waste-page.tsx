@@ -49,6 +49,7 @@ const IDLE_COLUMNS: Column<IdleRow>[] = [
     num: true,
     value: (r) => r.peakUtilPct,
     render: (r) => `${r.peakUtilPct.toFixed(1)}%`,
+    title_: () => "highest utilisation seen for this pod in this session (up to 6 h)",
   },
   {
     key: "idle",
