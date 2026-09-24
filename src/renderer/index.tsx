@@ -5,6 +5,7 @@ import { PodGpuDetails } from "./components/pod-gpu-details";
 import { AllocationPage } from "./pages/allocation-page";
 import { DevicesPage } from "./pages/devices-page";
 import { ExportersPage } from "./pages/exporters-page";
+import { PendingPage } from "./pages/pending-page";
 import { PodsPage } from "./pages/pods-page";
 import { WastePage } from "./pages/waste-page";
 
@@ -14,6 +15,7 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
     { id: "gpu-devices", components: { Page: () => <DevicesPage extension={this} /> } },
     { id: "gpu-idle", components: { Page: () => <WastePage extension={this} /> } },
     { id: "gpu-allocation", components: { Page: () => <AllocationPage extension={this} /> } },
+    { id: "gpu-pending", components: { Page: () => <PendingPage extension={this} /> } },
     { id: "gpu-exporters", components: { Page: () => <ExportersPage extension={this} /> } },
   ];
 
@@ -29,6 +31,7 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
       title: "Allocation",
       components: {},
     },
+    { id: "gpu-pending", parentId: "gpu", target: { pageId: "gpu-pending" }, title: "Pending", components: {} },
     { id: "gpu-exporters", parentId: "gpu", target: { pageId: "gpu-exporters" }, title: "Exporters", components: {} },
   ];
 

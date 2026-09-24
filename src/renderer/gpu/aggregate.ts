@@ -465,7 +465,8 @@ export function aggregateDevicesEnricher(results: EnricherResult[]): GpuDevice[]
   return out;
 }
 
-const isGpuResourceName = (k: string) =>
+/** nvidia.com/gpu, its renamed variants (nvidia.com/gpu.shared) and MIG resources (nvidia.com/mig-*). */
+export const isGpuResourceName = (k: string): boolean =>
   k === "nvidia.com/gpu" || k.startsWith("nvidia.com/gpu.") || k.startsWith("nvidia.com/mig-");
 const isShared = (k: string) => k.endsWith(".shared");
 

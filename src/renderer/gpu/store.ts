@@ -7,7 +7,8 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
-import { gpuResourceCount, sortDevices, sortRows, totalPowerW } from "./aggregate";
+import { gpuResourceCount, isGpuResourceName, sortDevices, sortRows, totalPowerW } from "./aggregate";
+import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
 import { GpuScraper, type ProbeResult } from "./scraper";
 
 import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, Snapshot } from "./types";
@@ -23,6 +24,12 @@ interface NodeInfo {
   gpuType?: string;
   capacity: number;
   allocatable: number;
+  /** Allocatable GPU resources by name (nvidia.com/gpu, nvidia.com/mig-1g.10gb, ...), for pending-pod hints. */
+  gpuResources: Record<string, number>;
+}
+
+export interface PendingRow extends PendingGpuPod {
+  hints: string[];
 }
 
 export class GpuStore {
@@ -92,6 +99,14 @@ export class GpuStore {
       });
     }
     return out.sort((a, b) => b.vramUsedMiB - a.vramUsedMiB);
+  }
+
+  /** Unscheduled GPU pods, oldest first, with hints the scheduler message does not give. */
+  @computed get pendingRows(): PendingRow[] {
+    const nodes: NodeGpuResources[] = this.nodes.map((n) => ({ name: n.name, allocatable: n.gpuResources }));
+    return (this.snapshot?.pending ?? [])
+      .map((p) => ({ ...p, hints: explainPending(p, nodes) }))
+      .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   }
 
   /** Per node: nvidia.com/gpu capacity / allocatable / requested vs measured devices. */
@@ -200,7 +215,11 @@ export class GpuStore {
           labels["gpu-type"] ??
           labels["cloud.google.com/gke-accelerator"] ??
           labels["accelerator"];
-        return { name: n.getName(), gpuType, capacity: cap, allocatable: alloc };
+        const gpuResources: Record<string, number> = {};
+        for (const [k, v] of Object.entries((n.status?.allocatable as Record<string, string> | undefined) ?? {})) {
+          if (isGpuResourceName(k)) gpuResources[k] = Number(v) || 0;
+        }
+        return { name: n.getName(), gpuType, capacity: cap, allocatable: alloc, gpuResources };
       });
       runInAction(() => {
         this.nodes = infos;

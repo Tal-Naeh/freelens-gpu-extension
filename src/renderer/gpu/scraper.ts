@@ -21,6 +21,7 @@ import {
   gpuResourceCount,
   usesGpuResource,
 } from "./aggregate";
+import { gpuRequestsOf, type PendingGpuPod } from "./pending";
 import { classifyMetrics, parsePrometheusText } from "./prom";
 
 import type { ExporterPod, ExporterScrape, GpuDevice, PodGPU, Snapshot } from "./types";
@@ -77,6 +78,23 @@ function requestsGpu(pod: Pod): boolean {
       usesGpuResource(r.requests as Record<string, string> | undefined)
     );
   });
+}
+
+/** A Pending pod the scheduler has not placed yet (PodScheduled != True); pods pulling images are not "waiting for a GPU". */
+function pendingOf(pod: Pod): PendingGpuPod[] {
+  const cond = pod.status?.conditions?.find((c) => c.type === "PodScheduled");
+  if (cond?.status === "True") return [];
+  const created = Date.parse(pod.metadata.creationTimestamp ?? "");
+  return [
+    {
+      namespace: pod.getNs(),
+      pod: pod.getName(),
+      createdAt: Number.isNaN(created) ? undefined : created,
+      requests: gpuRequestsOf(pod.getContainers()),
+      reason: cond?.reason,
+      message: cond?.message,
+    },
+  ];
 }
 
 export interface ScraperDeps {
@@ -145,6 +163,7 @@ export class GpuScraper {
   /** Pods requesting nvidia.com/gpu grouped by node, refreshed with discovery. */
   private gpuPodsByNode = new Map<string, string[]>();
   private requestedByNode: Record<string, { gpus: number; pods: string[] }> = {};
+  private pending: PendingGpuPod[] = [];
   /** Outcome of the last discovery pass, for diagnostics in the UI and logs. */
   lastProbes: ProbeResult[] = [];
   lastCandidateCount = 0;
@@ -186,6 +205,7 @@ export class GpuScraper {
     }
     this.gpuPodsByNode = byNode;
     this.requestedByNode = requested;
+    this.pending = pods.filter((p) => p.getStatusPhase() === "Pending" && requestsGpu(p)).flatMap(pendingOf);
 
     const candidates =
       this.explicit.length > 0
@@ -305,6 +325,14 @@ export class GpuScraper {
       gpus = gpus.concat(fromEnricher.filter((d) => !covered.has(d.node)));
     }
 
-    return { scrapedAt: new Date(), mode, rows, gpus, exporters: scraped, requestedByNode: this.requestedByNode };
+    return {
+      scrapedAt: new Date(),
+      mode,
+      rows,
+      gpus,
+      exporters: scraped,
+      requestedByNode: this.requestedByNode,
+      pending: this.pending,
+    };
   }
 }
