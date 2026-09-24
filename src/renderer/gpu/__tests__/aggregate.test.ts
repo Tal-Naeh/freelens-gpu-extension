@@ -9,6 +9,8 @@ import {
   buildEnricherRows,
   extractDcgmSamples,
   gpuResourceCount,
+  podsPerDevice,
+  sharedWith,
   sortDevices,
   sortRows,
   totalPowerW,
@@ -205,5 +207,45 @@ describe("power and resource totals", () => {
     expect(usesGpuResource({ "nvidia.com/mig-1g.10gb": "1" })).toBe(true);
     expect(usesGpuResource({ "nvidia.com/gpu": "0", cpu: "4" })).toBe(false);
     expect(usesGpuResource(undefined)).toBe(false);
+  });
+});
+
+describe("real DGX capture (A100 x8, MIG mixed, redacted)", () => {
+  const f = fams("dgx_a100_mig_mixed.prom");
+  const devs = aggregateDevicesDcgm(f, "dgx-1");
+  it("matches what the live cluster showed on 2026-09-24", () => {
+    expect(devs).toHaveLength(48);
+    expect(devs.filter((d) => d.migProfile)).toHaveLength(47);
+    expect(Math.round(totalPowerW(devs))).toBe(805); // 5,033 W if summed per slice
+    expect(aggregateByPod(extractDcgmSamples(f, "dgx-1"))).toHaveLength(29);
+  });
+  it("reads the profiling counters as percentages where exported", () => {
+    expect(devs.every((d) => d.tensorActivePct !== undefined && d.dramActivePct !== undefined)).toBe(true);
+    expect(devs.every((d) => d.smActivePct === undefined)).toBe(true); // SM_ACTIVE is not in this exporter's CSV
+    expect(Math.max(...devs.map((d) => d.dramActivePct ?? 0))).toBeCloseTo(0.0024);
+  });
+});
+
+describe("shared devices", () => {
+  const two = parsePrometheusText(
+    [
+      'DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-a",namespace="ml",pod="a"} 90',
+      'DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-a",namespace="ml",pod="b"} 90',
+      'DCGM_FI_DEV_GPU_UTIL{gpu="1",UUID="GPU-b",namespace="ml",pod="c"} 10',
+    ].join("\n"),
+  );
+  const perDevice = podsPerDevice(aggregateDevicesDcgm(two, "n"));
+  const rows = aggregateByPod(extractDcgmSamples(two, "n"));
+  it("marks DCGM rows whose device carries several pods", () => {
+    expect(sharedWith(byPod(rows, "ml", "a"), perDevice)).toBe(2);
+    expect(sharedWith(byPod(rows, "ml", "c"), perDevice)).toBe(1);
+  });
+  it("treats every DCGM row on a time-sliced node as shared", () => {
+    expect(sharedWith(byPod(rows, "ml", "c"), perDevice, 4)).toBe(4);
+  });
+  it("never marks per-process exporter rows: they are already split per pod", () => {
+    const [r] = buildEnricherRows([{ fams: fams("enricher.prom"), node: "gpu-node-1" }]);
+    expect(r.source).toBe("enricher");
+    expect(sharedWith(r, new Map([["gpu-node-1/0", 3]]), 4)).toBe(1);
   });
 });

@@ -66,11 +66,19 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
   {
     key: "util",
     title: "GPU %",
-    width: 175,
+    width: 230,
     min: 90,
     value: (r) => r.gpuUtilPct,
-    title_: (r) => `${r.gpuUtilPct.toFixed(1)}%`,
-    render: (r) => <UtilBar pct={r.gpuUtilPct} />,
+    title_: (r) =>
+      (r.sharedWith ?? 1) > 1
+        ? `${r.gpuUtilPct.toFixed(1)}% for the whole device, shared by ${r.sharedWith} pods; dcgm-exporter cannot split it per pod`
+        : `${r.gpuUtilPct.toFixed(1)}%`,
+    render: (r) => (
+      <>
+        <UtilBar pct={r.gpuUtilPct} />
+        {(r.sharedWith ?? 1) > 1 && <span className="gpuext-badge gpuext-shared">shared ×{r.sharedWith}</span>}
+      </>
+    ),
   },
   {
     key: "vramUsed",

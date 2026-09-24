@@ -56,6 +56,29 @@ export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
     title_: (d) => `${d.utilPct.toFixed(1)}%`,
     render: (d) => <UtilBar pct={d.utilPct} />,
   },
+  ...(
+    [
+      [
+        "sm",
+        "SM active",
+        "smActivePct",
+        "DCGM_FI_PROF_SM_ACTIVE: share of time at least one warp is resident on an SM",
+      ],
+      ["tensor", "Tensor", "tensorActivePct", "DCGM_FI_PROF_PIPE_TENSOR_ACTIVE: tensor (HMMA) pipe activity"],
+      ["dram", "Mem BW", "dramActivePct", "DCGM_FI_PROF_DRAM_ACTIVE: device memory interface activity"],
+    ] as const
+  ).map(
+    ([key, title, field, help]): Column<GpuDevice> => ({
+      key,
+      title,
+      width: 85,
+      min: 60,
+      num: true,
+      value: (d) => d[field] ?? -1,
+      render: (d) => (d[field] === undefined ? "–" : `${(d[field] as number).toFixed(0)}%`),
+      title_: (d) => (d[field] === undefined ? `${help} (not exported)` : help),
+    }),
+  ),
   {
     key: "vramUsed",
     title: "VRAM used",
@@ -126,6 +149,11 @@ export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
 export const DevicesPage = observer(({ extension }: { extension: Renderer.LensExtension }) => {
   const devs = gpuStore.devices;
   const idle = devs.filter((d) => d.pods.length === 0 && d.utilPct < 5).length;
+  // Only dcgm-exporter can report profiling counters; say so when it runs without them.
+  const hasDcgm = gpuStore.snapshot?.exporters.some((e) => e.kind === "dcgm") ?? false;
+  const hasProf = devs.some(
+    (d) => d.smActivePct !== undefined || d.tensorActivePct !== undefined || d.dramActivePct !== undefined,
+  );
   return (
     <PageShell
       extension={extension}
@@ -135,6 +163,14 @@ export const DevicesPage = observer(({ extension }: { extension: Renderer.LensEx
           <>
             {devs.length} device{devs.length === 1 ? "" : "s"} · {idle} with no pod and idle · total VRAM{" "}
             {fmtMiB(devs.reduce((s, d) => s + d.vramTotalMiB, 0))} · {totalPowerW(devs).toFixed(0)} W
+            {hasDcgm && !hasProf && (
+              <div className="gpuext-hint">
+                GPU % is kernel time only: a card can read 100% while its SMs do little. The profiling counters that
+                show real work (<code>DCGM_FI_PROF_SM_ACTIVE</code>, <code>PIPE_TENSOR_ACTIVE</code>,{" "}
+                <code>DRAM_ACTIVE</code>) are not exported; enable them in dcgm-exporter's counters CSV to fill SM
+                active / Tensor / Mem BW.
+              </div>
+            )}
           </>
         )
       }

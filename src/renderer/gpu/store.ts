@@ -7,7 +7,15 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
-import { gpuResourceCount, isGpuResourceName, sortDevices, sortRows, totalPowerW } from "./aggregate";
+import {
+  gpuResourceCount,
+  isGpuResourceName,
+  podsPerDevice,
+  sharedWith,
+  sortDevices,
+  sortRows,
+  totalPowerW,
+} from "./aggregate";
 import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
 import { GpuScraper, type ProbeResult } from "./scraper";
 
@@ -26,6 +34,8 @@ interface NodeInfo {
   allocatable: number;
   /** Allocatable GPU resources by name (nvidia.com/gpu, nvidia.com/mig-1g.10gb, ...), for pending-pod hints. */
   gpuResources: Record<string, number>;
+  /** GPU Operator time-slicing replicas (label nvidia.com/gpu.replicas); >1 means devices are shared. */
+  replicas: number;
 }
 
 export interface PendingRow extends PendingGpuPod {
@@ -51,7 +61,13 @@ export class GpuStore {
   }
 
   @computed get rows(): PodGPU[] {
-    return this.snapshot ? sortRows(this.snapshot.rows) : [];
+    if (!this.snapshot) return [];
+    const perDevice = podsPerDevice(this.snapshot.gpus);
+    const replicas = new Map(this.nodes.map((n) => [n.name, n.replicas]));
+    return sortRows(this.snapshot.rows).map((r) => ({
+      ...r,
+      sharedWith: sharedWith(r, perDevice, replicas.get(r.node)),
+    }));
   }
 
   @computed get devices(): GpuDevice[] {
@@ -219,7 +235,8 @@ export class GpuStore {
         for (const [k, v] of Object.entries((n.status?.allocatable as Record<string, string> | undefined) ?? {})) {
           if (isGpuResourceName(k)) gpuResources[k] = Number(v) || 0;
         }
-        return { name: n.getName(), gpuType, capacity: cap, allocatable: alloc, gpuResources };
+        const replicas = Number(labels["nvidia.com/gpu.replicas"] ?? 1) || 1;
+        return { name: n.getName(), gpuType, capacity: cap, allocatable: alloc, gpuResources, replicas };
       });
       runInAction(() => {
         this.nodes = infos;
