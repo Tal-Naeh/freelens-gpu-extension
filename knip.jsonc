@@ -8,7 +8,6 @@
   "ignoreDependencies": [
     // Build-only plugins; Knip does not execute the Electron Vite config.
     "@vitejs/plugin-react",
-    "@babel/plugin-proposal-decorators",
     // Provided by the Freelens host at runtime (mapped to globals in build/global-externals.js);
     // kept as a devDependency so the react peer range resolves.
     "react-dom"

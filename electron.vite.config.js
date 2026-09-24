@@ -7,12 +7,11 @@ import { globalExternals } from "./build/global-externals.js";
 // Provided by the Node/Electron runtime inside Freelens; never bundle them.
 const runtimeExternals = ["electron", /^electron\//, ...builtinModules, ...builtinModules.map((m) => `node:${m}`)];
 
+// Legacy (experimentalDecorators) MobX decorators are compiled by oxc; @vitejs/plugin-react 6 has no babel option.
 const decorators = {
   legacy: true,
   emitDecoratorMetadata: true,
 };
-
-const babelDecorators = [["@babel/plugin-proposal-decorators", { version: "2023-05" }]];
 
 export default defineConfig({
   main: {
@@ -33,7 +32,7 @@ export default defineConfig({
     },
     oxc: { decorator: decorators },
     plugins: [
-      react({ babel: { plugins: babelDecorators } }),
+      react(),
       globalExternals({
         "@freelensapp/extensions": "global.LensExtensions",
         mobx: "global.Mobx",
@@ -61,7 +60,7 @@ export default defineConfig({
     },
     oxc: { decorator: decorators },
     plugins: [
-      react({ babel: { plugins: babelDecorators } }),
+      react(),
       globalExternals({
         // Provided by the host app as globals; must not be bundled twice.
         "@freelensapp/extensions": "global.LensExtensions",
