@@ -31,6 +31,7 @@ export const gpuStyles = `
 .gpuext-bar.hot > span { background: var(--colorError); }
 .gpuext-bar.idle > span { background: var(--textColorTertiary); }
 .gpuext-badge { display: inline-block; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--borderFaintColor); margin-right: 4px; font-size: 12px; }
+.gpuext-shared { margin-left: 6px; color: var(--colorWarning); }
 .gpuext-details { font-size: 13px; }
 .gpuext-subtitle { margin-top: 0; }
 .gpuext-h3 { font-size: 13px; font-weight: 500; color: var(--textColorSecondary); margin: calc(var(--padding) * 2) 0 var(--padding); }

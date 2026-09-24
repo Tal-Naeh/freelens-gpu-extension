@@ -14,6 +14,10 @@ export interface ExporterPod {
 }
 
 export interface PodGPU {
+  /** Which exporter the row came from: the per-process exporter splits a device per pod, DCGM does not. */
+  source?: ExporterKind;
+  /** Pods on this row's device (set by the store; >1 means the util/power shown are device-level). */
+  sharedWith?: number;
   namespace: string;
   pod: string;
   node: string;
@@ -45,6 +49,10 @@ export interface GpuDevice {
   vramTotalMiB: number;
   powerWatts: number;
   tempC?: number;
+  /** DCGM profiling counters as %, when DCP metrics are enabled on the exporter. */
+  smActivePct?: number;
+  tensorActivePct?: number;
+  dramActivePct?: number;
   /** Workload pods seen on this device ("ns/pod"). */
   pods: string[];
 }

@@ -31,7 +31,11 @@ const WANTED_DCGM = [
   "DCGM_FI_PROF_GR_ENGINE_ACTIVE",
 ];
 
-const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL"];
+// Profiling ratios [0,1]: what the SMs / tensor cores / memory interface actually do. GPU_UTIL only says a kernel
+// was running, so a card can show 100% while doing little; these counters are off unless DCP metrics are enabled.
+const PROF_DCGM = ["DCGM_FI_PROF_SM_ACTIVE", "DCGM_FI_PROF_PIPE_TENSOR_ACTIVE", "DCGM_FI_PROF_DRAM_ACTIVE"];
+
+const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL", ...PROF_DCGM];
 
 /** DCGM: flatten wanted families into (ns, pod, gpu, node, metric, value). */
 export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSample[] {
@@ -133,7 +137,11 @@ export function aggregateByPod(samples: FlatSample[]): PodGPU[] {
     const key = `${s.ns}/${s.pod}`;
     let acc = accs.get(key);
     if (!acc) {
-      acc = { row: newRow({ namespace: s.ns, pod: s.pod, node: s.node }), seenGPU: new Set(), util: new Map() };
+      acc = {
+        row: newRow({ namespace: s.ns, pod: s.pod, node: s.node, source: "dcgm" }),
+        seenGPU: new Set(),
+        util: new Map(),
+      };
       accs.set(key, acc);
     } else if (!acc.row.node) {
       acc.row.node = s.node;
@@ -261,6 +269,7 @@ export function buildEnricherRows(results: EnricherResult[]): PodGPU[] {
     }
     gpuIdxs.sort();
     rows.push({
+      source: "enricher",
       namespace: ns,
       pod,
       node,
@@ -387,6 +396,15 @@ export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuD
         case "DCGM_FI_DEV_GPU_TEMP":
           d.tempC = Math.max(d.tempC ?? 0, m.value);
           break;
+        case "DCGM_FI_PROF_SM_ACTIVE":
+          d.smActivePct = Math.max(d.smActivePct ?? 0, m.value * 100);
+          break;
+        case "DCGM_FI_PROF_PIPE_TENSOR_ACTIVE":
+          d.tensorActivePct = Math.max(d.tensorActivePct ?? 0, m.value * 100);
+          break;
+        case "DCGM_FI_PROF_DRAM_ACTIVE":
+          d.dramActivePct = Math.max(d.dramActivePct ?? 0, m.value * 100);
+          break;
       }
     }
   }
@@ -469,6 +487,23 @@ export function aggregateDevicesEnricher(results: EnricherResult[]): GpuDevice[]
 export const isGpuResourceName = (k: string): boolean =>
   k === "nvidia.com/gpu" || k.startsWith("nvidia.com/gpu.") || k.startsWith("nvidia.com/mig-");
 const isShared = (k: string) => k.endsWith(".shared");
+
+/**
+ * How many workload pods share each device, keyed "node/gpu". A pod row whose
+ * GPU is shared carries device-level numbers (dcgm-exporter reports the whole
+ * device's util/power on every pod that uses it), not that pod's share.
+ */
+export function podsPerDevice(devs: GpuDevice[]): Map<string, number> {
+  return new Map(devs.map((d) => [`${d.node}/${d.gpu}`, d.pods.length]));
+}
+
+/** Number of pods sharing the busiest device of a DCGM pod row (1 = not shared). */
+export function sharedWith(r: PodGPU, perDevice: Map<string, number>, replicasOnNode = 1): number {
+  if (r.source !== "dcgm" || r.gpuIndex) return 1;
+  let n = 1;
+  for (const g of r.gpus) n = Math.max(n, perDevice.get(`${r.node}/${g}`) ?? 1);
+  return Math.max(n, replicasOnNode > 1 ? replicasOnNode : 1);
+}
 
 /**
  * GPU devices in a resource list: `nvidia.com/gpu` plus every MIG resource
