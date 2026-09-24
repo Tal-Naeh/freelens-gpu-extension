@@ -25,22 +25,27 @@ It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubec
   grouped under their physical GPU); per process when workloads bypass the device plugin with
   `NVIDIA_VISIBLE_DEVICES=all`; graceful per-(node, GPU) fallback with candidate pods otherwise. Same rules as
   [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubectl-gpugo), so CLI and GUI agree.
-- **Five views** under a **GPU** sidebar group (below), plus GPU sections in the Pod and Node detail drawers.
+- **Seven views** under a **GPU** sidebar group (below), plus GPU sections in the Pod and Node detail drawers.
 - **Tables that behave** — click a header to sort, drag its right edge to resize (double-click resets, widths are
   remembered), sticky header while scrolling, full text on hover.
-- **Honest numbers** — device gauges are never double-counted, power on shared GPUs is split by VRAM share, and the
-  version badge in every title tells you which build you are looking at.
+- **Honest numbers** — device gauges are never double-counted; MIG power is counted once per card; pods on a shared or
+  time-sliced GPU are badged because dcgm-exporter reports device-level numbers for them; the profiling counters (SM /
+  tensor / memory activity) sit next to "GPU %", which is only kernel time; health shows "not exported" rather than a
+  reassuring OK without data; and the version badge in every title tells you which build you are looking at.
 
 ## Views
 
-All five are fed by the same 20 s scrape:
+All seven are fed by the same 20 s scrape (Pending and Namespaces work from the pod list alone, even without an
+exporter):
 
 | View | Question it answers |
 | --- | --- |
-| **Pods** | Which pods hold GPUs right now, on which card / MIG slice, at what utilisation, VRAM and power. Sorted by physical GPU so pile-ups are obvious. |
-| **GPUs** | One row per physical GPU or MIG slice: model, MIG profile, utilisation, VRAM used / total / %, power, temperature, and the pods sharing it. Cards with no pod are listed too. |
+| **Pods** | Which pods hold GPUs right now, on which card / MIG slice, at what utilisation, VRAM and power. Sorted by physical GPU so pile-ups are obvious; `shared ×N` / `time-sliced` badges mark device-level numbers. |
+| **Namespaces** | Whose GPUs are these, and are they using them: per namespace, devices requested (by resource), devices in use, mean utilisation, VRAM held, VRAM held idle, pods waiting, power. |
+| **GPUs** | One row per physical GPU or MIG slice: model, MIG profile, utilisation, **SM active / Tensor / Mem BW** (DCGM profiling counters), VRAM used / total / %, power, temperature, **Health** (XID, uncorrectable ECC, row remapping), and the pods sharing it. Cards with no pod are listed too. |
 | **Idle & waste** | Pods holding VRAM at under 5 % utilisation, with how long they have been idle (history kept while Freelens is open). The first place to look before buying more GPUs. |
-| **Allocation** | Per node: `nvidia.com/gpu` capacity and allocatable vs what running pods request vs what the exporters actually measure as busy. Shows scheduler view and reality side by side. |
+| **Allocation** | Per node: GPU capacity (`nvidia.com/gpu` + `nvidia.com/mig-*`), allocatable, **unhealthy** (capacity − allocatable), what pods request, **free MIG slices per profile**, and what the exporters measure as busy. Scheduler view and reality side by side. |
+| **Pending** | Pods waiting for a GPU: how long, what they request, the scheduler's message, and a **Why** for requests that can never fit (a resource no node offers, `nvidia.com/gpu` on a MIG-partitioned cluster, more devices than any node has). |
 | **Exporters** | What discovery found: each exporter's kind, node, scrape latency and body size, plus every candidate probed and why it was or wasn't accepted. |
 
 Every table sorts on header click, resizes by dragging the header edge (double-click resets, widths are remembered), keeps its header visible while scrolling, and shows the full text of a truncated cell on hover.

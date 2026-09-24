@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0
+
+Four new capabilities, chosen from what Kubernetes GPU users ask for most (dcgm-exporter / device-plugin / GPU Operator
+issues, Lens and k9s issues, KubeCon talks). 0.4.0 was never published; its features ship here.
+
+- **Pending** view: pods waiting for a GPU, with the scheduler's message and a *Why* for requests that can never be
+  scheduled as written (a resource no node offers, `nvidia.com/gpu` on a MIG-partitioned cluster → request a slice,
+  more devices than any single node has).
+- **Namespaces** view: per namespace, devices requested (per resource), devices in use, mean GPU %, VRAM held, VRAM held
+  idle, pods waiting and power ("whose GPUs are these, and are they using them?").
+- **Honest utilisation**: GPUs view gains *SM active*, *Tensor* and *Mem BW* from `DCGM_FI_PROF_*` (with a notice when
+  dcgm-exporter runs without them: "GPU %" is kernel time only). Pods view badges rows whose numbers are device-level:
+  `shared ×N` when several pods sit on one device, `time-sliced` on nodes with `nvidia.com/gpu.replicas` > 1.
+- **GPU health**: GPUs view *Health* from `XID_ERRORS`, `ECC_DBE_VOL_TOTAL`, `ROW_REMAP_FAILURE` (bad) and
+  `UNCORRECTABLE_REMAPPED_ROWS` (warn); "not exported" when a device reports none of them (MIG slices never do) instead
+  of a reassuring OK. Allocation gains *Unhealthy* (capacity − allocatable) and *MIG free* (free slices per profile);
+  the Node drawer lists devices with issues.
+- Pending and Namespaces work from the pod list alone, so they still show data on a cluster whose GPU exporter is
+  missing or failing. Requested / MIG free count pods already bound to a node but still starting, as the scheduler does.
+- Tests: a redacted real capture of an 8× A100 MIG-mixed dcgm-exporter is now a fixture (48 devices, 805 W, 29 pods).
+- Toolchain (no runtime change): TypeScript 7, pnpm 12 (`allowBuilds`), Vite 8.3, Vitest 5, knip 6.38, biome 2.5;
+  dropped the dead `@babel/plugin-proposal-decorators` option; Renovate waits a day before opening update PRs.
+
 ## 0.3.5
 
 - Fix: time-slicing replicas (`nvidia.com/gpu.shared`, `nvidia.com/mig-*.shared`) are no longer counted as extra devices
