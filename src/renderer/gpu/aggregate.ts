@@ -465,18 +465,29 @@ export function aggregateDevicesEnricher(results: EnricherResult[]): GpuDevice[]
   return out;
 }
 
+const isGpuResourceName = (k: string) =>
+  k === "nvidia.com/gpu" || k.startsWith("nvidia.com/gpu.") || k.startsWith("nvidia.com/mig-");
+const isShared = (k: string) => k.endsWith(".shared");
+
 /**
  * GPU devices in a resource list: `nvidia.com/gpu` plus every MIG resource
  * (`nvidia.com/mig-1g.10gb`, ...) that the device plugin advertises under
  * mig.strategy=mixed. Units are devices (whole GPUs or slices), matching
- * what the exporters report per row.
+ * what the exporters report per row. `*.shared` resources (time-slicing
+ * replicas, renameByDefault) are replicas of those same devices, not extra
+ * hardware, so they are not counted.
  */
 export function gpuResourceCount(resources: Record<string, string> | undefined): number {
   let n = 0;
   for (const [k, v] of Object.entries(resources ?? {})) {
-    if (k === "nvidia.com/gpu" || k.startsWith("nvidia.com/mig-")) n += Number(v) || 0;
+    if (isGpuResourceName(k) && !isShared(k)) n += Number(v) || 0;
   }
   return n;
+}
+
+/** Whether a resource list asks for any GPU at all, including time-sliced `*.shared` replicas. */
+export function usesGpuResource(resources: Record<string, string> | undefined): boolean {
+  return Object.entries(resources ?? {}).some(([k, v]) => isGpuResourceName(k) && (Number(v) || 0) > 0);
 }
 
 /**

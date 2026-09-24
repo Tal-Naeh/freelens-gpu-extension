@@ -19,6 +19,7 @@ import {
   buildEnricherRows,
   extractDcgmSamples,
   gpuResourceCount,
+  usesGpuResource,
 } from "./aggregate";
 import { classifyMetrics, parsePrometheusText } from "./prom";
 
@@ -56,7 +57,7 @@ function metricsPort(pod: Pod): number {
   return ports[0]?.containerPort ?? 0;
 }
 
-/** GPU devices (nvidia.com/gpu + MIG slices) requested by a pod: container limits, falling back to requests. */
+/** GPU devices (nvidia.com/gpu + MIG slices, not *.shared replicas) requested by a pod: container limits, falling back to requests. */
 function gpusRequested(pod: Pod): number {
   let n = 0;
   for (const c of pod.getContainers()) {
@@ -67,8 +68,15 @@ function gpusRequested(pod: Pod): number {
   return n;
 }
 
+/** Pod uses a GPU at all (whole, MIG slice, or time-sliced replica). */
 function requestsGpu(pod: Pod): boolean {
-  return gpusRequested(pod) > 0;
+  return pod.getContainers().some((c) => {
+    const r = c.resources ?? {};
+    return (
+      usesGpuResource(r.limits as Record<string, string> | undefined) ||
+      usesGpuResource(r.requests as Record<string, string> | undefined)
+    );
+  });
 }
 
 export interface ScraperDeps {

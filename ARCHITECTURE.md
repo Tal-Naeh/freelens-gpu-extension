@@ -50,7 +50,8 @@ The node of a DCGM sample is the exporter pod's `spec.nodeName`; the `Hostname` 
 the container hostname (the exporter pod name) unless the DaemonSet sets `NODE_NAME`.
 
 "GPUs requested" and node capacity count `nvidia.com/gpu` **plus** every `nvidia.com/mig-*` resource
-(`mig.strategy=mixed`), in devices, which is the same unit the exporters report.
+(`mig.strategy=mixed`), in devices, which is the same unit the exporters report. Time-slicing replicas renamed to
+`*.shared` are not devices and are left out of the counts, but a pod requesting one still counts as a GPU pod.
 
 ## Why the relative `/api-kube` fetch
 

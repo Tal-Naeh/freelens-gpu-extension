@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5
+
+- Fix: time-slicing replicas (`nvidia.com/gpu.shared`, `nvidia.com/mig-*.shared`) are no longer counted as extra devices
+  in node capacity / allocatable or in "Requested", which would inflate Allocation on time-sliced nodes. Pods requesting
+  them still count as GPU pods (requesting-pods list, fallback-mode hints).
+- Verified 0.3.4 against a live DGX A100 (47 MIG slices + 1 whole GPU): power total 805 W (was 5,033 W summed per slice),
+  Allocation capacity 48 / requested 29 (was 1 / 0).
+
 ## 0.3.4
 
 - Fix: pod GPU % no longer double-counts on non-MIG cards that emit both `DCGM_FI_DEV_GPU_UTIL` and

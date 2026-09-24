@@ -12,6 +12,7 @@ import {
   sortDevices,
   sortRows,
   totalPowerW,
+  usesGpuResource,
 } from "../aggregate";
 import { classifyMetrics, parsePrometheusText } from "../prom";
 
@@ -188,5 +189,21 @@ describe("power and resource totals", () => {
       }),
     ).toBe(11);
     expect(gpuResourceCount(undefined)).toBe(0);
+    // klabdgx node status, 2026-09-24: 1 whole GPU + 46 + 1 MIG slices; *.shared are replicas, not devices
+    expect(
+      gpuResourceCount({
+        "nvidia.com/gpu": "1",
+        "nvidia.com/mig-1g.10gb": "46",
+        "nvidia.com/mig-1g.10gb.shared": "0",
+        "nvidia.com/mig-3g.40gb": "1",
+      }),
+    ).toBe(48);
+    expect(gpuResourceCount({ "nvidia.com/gpu.shared": "8", "nvidia.com/mig-1g.10gb.shared": "4" })).toBe(0);
+  });
+  it("treats time-sliced *.shared requests as using a GPU", () => {
+    expect(usesGpuResource({ "nvidia.com/gpu.shared": "1" })).toBe(true);
+    expect(usesGpuResource({ "nvidia.com/mig-1g.10gb": "1" })).toBe(true);
+    expect(usesGpuResource({ "nvidia.com/gpu": "0", cpu: "4" })).toBe(false);
+    expect(usesGpuResource(undefined)).toBe(false);
   });
 });
