@@ -28,7 +28,7 @@ importers:
         specifier: ^17.0.93
         version: 17.0.93
       '@vitejs/plugin-react':
-        specifier: ^6.0.3
+        specifier: ^6.1.1
         version: 6.1.1(vite@8.2.2(@types/node@24.12.4))
       electron-vite:
         specifier: ^5.0.0
