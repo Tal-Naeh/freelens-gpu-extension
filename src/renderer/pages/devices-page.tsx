@@ -124,6 +124,10 @@ export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
     num: true,
     value: (d) => d.powerWatts,
     render: (d) => `${d.powerWatts.toFixed(0)} W`,
+    title_: (d) =>
+      d.migProfile
+        ? `${d.powerWatts.toFixed(0)} W is the whole card's draw (DCGM reports it on every slice); pods and namespaces are charged a share by slice size`
+        : `${d.powerWatts.toFixed(0)} W`,
   },
   {
     key: "temp",

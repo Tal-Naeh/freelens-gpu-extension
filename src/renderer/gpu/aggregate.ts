@@ -626,6 +626,52 @@ export function sharedWith(r: PodGPU, perDevice: Map<string, number>): number {
   return n;
 }
 
+/** Compute size of a MIG profile: "3g.40gb" -> 3 (GPU instances are sized in compute slices). */
+const migComputeSlices = (profile?: string): number => {
+  const m = /^(\d+)g\./.exec(profile ?? "");
+  return m ? Number(m[1]) : 1;
+};
+
+/**
+ * Power per device for attribution to pods. A MIG slice reports its whole card's DCGM_FI_DEV_POWER_USAGE, so giving
+ * each slice (and so each pod on one) the full draw multiplies a card by its slice count when summed per pod or per
+ * namespace. Each slice gets the card's power weighted by its compute size among the card's slices (1g of a fully
+ * partitioned A100 = 1/7); whole GPUs keep their own power. Keyed "node/gpu".
+ */
+export function devicePowerShares(devs: GpuDevice[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const cards = new Map<string, GpuDevice[]>();
+  for (const d of devs) {
+    if (!d.gpu.includes(":")) {
+      out.set(`${d.node}/${d.gpu}`, d.powerWatts);
+      continue;
+    }
+    const card = `${d.node}/${d.uuid ?? d.gpu.split(":")[0]}`;
+    cards.set(card, [...(cards.get(card) ?? []), d]);
+  }
+  for (const slices of cards.values()) {
+    const cardPower = Math.max(...slices.map((d) => d.powerWatts));
+    const total = slices.reduce((s, d) => s + migComputeSlices(d.migProfile), 0);
+    for (const d of slices) out.set(`${d.node}/${d.gpu}`, (cardPower * migComputeSlices(d.migProfile)) / total);
+  }
+  return out;
+}
+
+/**
+ * A DCGM pod row's power as its share of the devices it uses (see devicePowerShares). Rows from the per-process
+ * exporter are already split by VRAM share and are returned unchanged, as are rows whose devices are unknown.
+ */
+export function attributedPower(r: PodGPU, shares: Map<string, number>): number {
+  if (r.source !== "dcgm" || r.gpus.length === 0) return r.powerWatts;
+  let sum = 0;
+  for (const g of r.gpus) {
+    const w = shares.get(`${r.node}/${g}`);
+    if (w === undefined) return r.powerWatts;
+    sum += w;
+  }
+  return sum;
+}
+
 /**
  * GPU devices in a resource list: `nvidia.com/gpu` plus every MIG resource
  * (`nvidia.com/mig-1g.10gb`, ...) that the device plugin advertises under

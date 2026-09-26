@@ -8,6 +8,8 @@
 import { Renderer } from "@freelensapp/extensions";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 import {
+  attributedPower,
+  devicePowerShares,
   gpuResourceCount,
   isGpuResourceName,
   podsPerDevice,
@@ -83,9 +85,11 @@ export class GpuStore {
   @computed get rows(): PodGPU[] {
     if (!this.snapshot) return [];
     const perDevice = podsPerDevice(this.snapshot.gpus);
+    const powerShares = devicePowerShares(this.snapshot.gpus);
     const replicas = new Map(this.nodes.map((n) => [n.name, n.replicas]));
     return sortRows(this.snapshot.rows).map((r) => ({
       ...r,
+      powerWatts: attributedPower(r, powerShares),
       sharedWith: sharedWith(r, perDevice),
       timeSliced: r.source === "dcgm" && !r.gpuIndex && (replicas.get(r.node) ?? 1) > 1,
       health: rowHealth(r, this.snapshot?.gpus ?? []),
