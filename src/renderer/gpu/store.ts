@@ -11,14 +11,16 @@ import {
   gpuResourceCount,
   isGpuResourceName,
   podsPerDevice,
+  rowHealth,
   sharedWith,
   sortDevices,
   sortRows,
   totalPowerW,
 } from "./aggregate";
+import { type InferenceLevel, inferenceStatus, type VllmRates, type VllmSample, vllmRates } from "./inference";
 import { aggregateNamespaces, migFree, type NamespaceRow } from "./namespaces";
 import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
-import { GpuScraper, type ProbeResult } from "./scraper";
+import { GpuScraper, type InferenceScrape, type ProbeResult } from "./scraper";
 import { formatTarget, isTarget, parseTarget, type Target } from "./targets";
 
 import type { ReportInput } from "./report";
@@ -41,6 +43,13 @@ interface NodeInfo {
   replicas: number;
 }
 
+export interface InferenceRow extends InferenceScrape {
+  rates: VllmRates;
+  status: { level: InferenceLevel; text: string };
+  /** The GPU row of the same pod, when an exporter attributes one. */
+  gpu?: PodGPU;
+}
+
 export interface PendingRow extends PendingGpuPod {
   hints: string[];
 }
@@ -50,6 +59,9 @@ export class GpuStore {
   /** Pinned exporter / Prometheus targets for the active cluster (persisted per cluster in localStorage). */
   @observable.ref pins: Target[] = [];
   private pinsLoadedFor: string | undefined;
+  /** Inference servers (vLLM) scraped on every refresh, with rates against the previous scrape. */
+  @observable.ref inference: { scrape: InferenceScrape; rates: VllmRates }[] = [];
+  private inferencePrev = new Map<string, { at: number; sample: VllmSample }>();
   /** Pod-list state; updated even when the metrics snapshot fails (no exporter, scrape errors). */
   @observable.ref podState: PodState | undefined = undefined;
   @observable error: string | undefined = undefined;
@@ -76,6 +88,7 @@ export class GpuStore {
       ...r,
       sharedWith: sharedWith(r, perDevice),
       timeSliced: r.source === "dcgm" && !r.gpuIndex && (replicas.get(r.node) ?? 1) > 1,
+      health: rowHealth(r, this.snapshot?.gpus ?? []),
     }));
   }
 
@@ -131,6 +144,40 @@ export class GpuStore {
     const ps = this.podState;
     if (!ps) return [];
     return aggregateNamespaces(ps.requestedByNamespace, this.rows, this.idleRows, ps.pending);
+  }
+
+  /** Inference servers joined with their GPU rows; worst status first. */
+  @computed get inferenceRows(): InferenceRow[] {
+    const gpuByPod = new Map(this.rows.map((r) => [`${r.namespace}/${r.pod}`, r]));
+    const rank = { bad: 0, warn: 1, ok: 2, idle: 3 } as const;
+    return this.inference
+      .map(({ scrape, rates }) => ({
+        ...scrape,
+        rates,
+        status: scrape.sample
+          ? inferenceStatus(scrape.sample, rates)
+          : { level: "warn" as const, text: `metrics unreachable: ${scrape.error ?? "unknown"}` },
+        gpu: gpuByPod.get(`${scrape.namespace}/${scrape.pod}`),
+      }))
+      .sort((a, b) => rank[a.status.level] - rank[b.status.level] || (a.pod < b.pod ? -1 : 1));
+  }
+
+  private async refreshInference() {
+    const scrapes = await this.scraper.scrapeInference();
+    const out = scrapes.map((scrape) => {
+      const key = `${scrape.namespace}/${scrape.pod}`;
+      const prev = this.inferencePrev.get(key);
+      const rates = scrape.sample
+        ? vllmRates(prev?.sample, scrape.sample, prev ? (scrape.at - prev.at) / 1000 : 0)
+        : {};
+      if (scrape.sample) this.inferencePrev.set(key, { at: scrape.at, sample: scrape.sample });
+      return { scrape, rates };
+    });
+    const live = new Set(scrapes.map((x) => `${x.namespace}/${x.pod}`));
+    for (const k of [...this.inferencePrev.keys()]) if (!live.has(k)) this.inferencePrev.delete(k);
+    runInAction(() => {
+      this.inference = out;
+    });
   }
 
   /** Unscheduled GPU pods, oldest first, with hints the scheduler message does not give. */
@@ -270,6 +317,7 @@ export class GpuStore {
       namespaces: this.namespaceRows,
       idle: this.idleRows,
       pending: this.pendingRows,
+      inference: this.inferenceRows,
     };
   }
 
@@ -356,6 +404,12 @@ export class GpuStore {
         this.error = e instanceof Error ? e.message : String(e);
       });
     } finally {
+      // Inference servers don't depend on a GPU exporter: scrape them whether or not the snapshot worked.
+      try {
+        await this.refreshInference();
+      } catch {
+        /* per-pod errors are recorded on each scrape */
+      }
       // Discovery lists pods before it looks for exporters, so this is fresh even when the snapshot threw.
       const ps = this.scraper.podState;
       runInAction(() => {

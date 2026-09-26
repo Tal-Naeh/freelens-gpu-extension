@@ -5,6 +5,7 @@ import { PodGpuDetails } from "./components/pod-gpu-details";
 import { AllocationPage } from "./pages/allocation-page";
 import { DevicesPage } from "./pages/devices-page";
 import { ExportersPage } from "./pages/exporters-page";
+import { InferencePage } from "./pages/inference-page";
 import { NamespacesPage } from "./pages/namespaces-page";
 import { PendingPage } from "./pages/pending-page";
 import { PodsPage } from "./pages/pods-page";
@@ -14,6 +15,7 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
   clusterPages = [
     { id: "gpu-pods", components: { Page: () => <PodsPage extension={this} /> } },
     { id: "gpu-namespaces", components: { Page: () => <NamespacesPage extension={this} /> } },
+    { id: "gpu-inference", components: { Page: () => <InferencePage extension={this} /> } },
     { id: "gpu-devices", components: { Page: () => <DevicesPage extension={this} /> } },
     { id: "gpu-idle", components: { Page: () => <WastePage extension={this} /> } },
     { id: "gpu-allocation", components: { Page: () => <AllocationPage extension={this} /> } },
@@ -29,6 +31,13 @@ export default class GpuExtensionRenderer extends Renderer.LensExtension {
       parentId: "gpu",
       target: { pageId: "gpu-namespaces" },
       title: "Namespaces",
+      components: {},
+    },
+    {
+      id: "gpu-inference",
+      parentId: "gpu",
+      target: { pageId: "gpu-inference" },
+      title: "Inference",
       components: {},
     },
     { id: "gpu-devices", parentId: "gpu", target: { pageId: "gpu-devices" }, title: "GPUs", components: {} },

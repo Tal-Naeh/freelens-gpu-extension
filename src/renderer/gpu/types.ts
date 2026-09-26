@@ -25,6 +25,8 @@ export interface PodGPU {
    * device even if the exporter only attributes it to this one, so treat the numbers as device-level.
    */
   timeSliced?: boolean;
+  /** Worst health of the devices this row uses (set by the store; undefined when none reports health). */
+  health?: { level: "ok" | "warn" | "bad" | "unknown"; text: string };
   namespace: string;
   pod: string;
   node: string;
@@ -65,6 +67,8 @@ export interface GpuDevice {
   eccDbe?: number;
   rowRemapFailure?: number;
   uncorrectableRemappedRows?: number;
+  /** DCGM clock event (throttle) reasons bitmask, when exported. */
+  throttleMask?: number;
   /** Workload pods seen on this device ("ns/pod"). */
   pods: string[];
 }

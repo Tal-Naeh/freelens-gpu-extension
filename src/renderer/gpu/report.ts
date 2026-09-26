@@ -6,6 +6,7 @@
 
 import { deviceHealth, totalPowerW } from "./aggregate";
 
+import type { VllmRates, VllmSample } from "./inference";
 import type { NamespaceRow } from "./namespaces";
 import type { AllocationRow, ExporterScrape, GpuDevice, IdleRow, PendingGpuPod, PodGPU } from "./types";
 
@@ -21,6 +22,15 @@ export interface ReportInput {
   namespaces: NamespaceRow[];
   idle: IdleRow[];
   pending: (PendingGpuPod & { hints?: string[] })[];
+  /** Inference servers (vLLM) with their serving numbers. */
+  inference?: {
+    namespace: string;
+    pod: string;
+    engine: string;
+    sample?: VllmSample;
+    rates: VllmRates;
+    status: { level: string; text: string };
+  }[];
 }
 
 const mib = (v: number) => (v >= 1024 ? `${(v / 1024).toFixed(1)} GiB` : `${Math.round(v)} MiB`);
@@ -95,6 +105,25 @@ export function reportMarkdown(r: ReportInput): string {
             .map(([k, v]) => `${k.replace(/^nvidia\.com\//, "")}×${v}`)
             .join(", "),
           p.hints?.length ? p.hints.join(" ") : (p.message ?? p.reason ?? ""),
+        ]),
+      ),
+    );
+  }
+
+  if (r.inference && r.inference.length > 0) {
+    out.push("\n**Inference servers**");
+    out.push(
+      table(
+        ["Pod", "Model", "KV cache", "Running", "Waiting", "Gen tok/s", "TTFT", "Status"],
+        r.inference.map((i) => [
+          `${i.namespace}/${i.pod}`,
+          i.sample?.models.join(", ") || i.engine,
+          i.sample?.kvCachePct === undefined ? "–" : pct(i.sample.kvCachePct),
+          i.sample?.running ?? "–",
+          i.sample?.waiting ?? "–",
+          i.rates.generationTokPerSec === undefined ? "–" : i.rates.generationTokPerSec.toFixed(0),
+          i.rates.ttftMs === undefined ? "–" : `${i.rates.ttftMs.toFixed(0)} ms`,
+          i.status.text,
         ]),
       ),
     );

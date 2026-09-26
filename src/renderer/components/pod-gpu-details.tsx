@@ -22,6 +22,16 @@ export const PodGpuDetails = observer(({ object: pod }: Props) => {
     <div className="gpuext-details">
       <style>{gpuStyles}</style>
       <DrawerTitle>GPU</DrawerTitle>
+      {rows
+        .filter((r) => r.health && r.health.level !== "ok")
+        .map((r) => (
+          <div
+            key={r.gpus.join(",")}
+            className={r.health?.level === "bad" ? "gpuext-error" : "gpuext-hint gpuext-warn"}
+          >
+            GPU {r.gpus.join(", ")}: {r.health?.text}
+          </div>
+        ))}
       <GpuTable rows={rows} compact />
       {gpuStore.snapshot && (
         <div className="gpuext-hint">last scrape {gpuStore.snapshot.scrapedAt.toLocaleTimeString()}</div>

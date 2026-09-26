@@ -9,6 +9,8 @@
  *   3. dcgm-exporter without pod labels -> per-(node, GPU) rows + candidate pods
  */
 
+import { throttleReasons, xidInfo } from "./xid";
+
 import type { Families, Sample } from "./prom";
 import type { GpuDevice, PodGPU } from "./types";
 
@@ -42,6 +44,9 @@ const HEALTH_DCGM = [
   "DCGM_FI_DEV_ECC_DBE_VOL_TOTAL",
   "DCGM_FI_DEV_ROW_REMAP_FAILURE",
   "DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS",
+  // clock event (throttle) reasons bitmask; renamed in newer DCGM, both are read
+  "DCGM_FI_DEV_CLOCK_THROTTLE_REASONS",
+  "DCGM_FI_DEV_CLOCKS_EVENT_REASONS",
 ];
 
 const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL", ...PROF_DCGM, ...HEALTH_DCGM];
@@ -437,6 +442,10 @@ export function aggregateDevicesDcgm(fams: Families, exporterNode: string): GpuD
         case "DCGM_FI_DEV_UNCORRECTABLE_REMAPPED_ROWS":
           d.uncorrectableRemappedRows = Math.max(d.uncorrectableRemappedRows ?? 0, m.value);
           break;
+        case "DCGM_FI_DEV_CLOCK_THROTTLE_REASONS":
+        case "DCGM_FI_DEV_CLOCKS_EVENT_REASONS":
+          d.throttleMask = (d.throttleMask ?? 0) | Math.trunc(m.value);
+          break;
       }
     }
   }
@@ -531,8 +540,13 @@ export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string }
   const issues: string[] = [];
   let level: HealthLevel = "ok";
   if ((d.lastXid ?? 0) > 0) {
-    issues.push(`XID ${d.lastXid}`);
-    level = "bad";
+    const x = xidInfo(d.lastXid as number);
+    // DCGM keeps the code of the LAST XID seen; it can be long past, so say so.
+    issues.push(`last XID ${d.lastXid}: ${x.meaning}`);
+    // Application-caused XIDs (13, 31, 43, 45) are the workload's fault; the GPU itself is usually fine.
+    if (x.application) {
+      if (level === "ok") level = "warn";
+    } else level = "bad";
   }
   if ((d.eccDbe ?? 0) > 0) {
     issues.push(`${d.eccDbe} uncorrectable ECC`);
@@ -546,7 +560,13 @@ export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string }
     issues.push(`${d.uncorrectableRemappedRows} rows remapped (reset pending)`);
     if (level === "ok") level = "warn";
   }
+  for (const t of throttleReasons(d.throttleMask ?? 0)) {
+    if (!t.serious) continue; // a software power cap is configuration, not a problem
+    issues.push(`throttled: ${t.label}`);
+    if (level === "ok") level = "warn";
+  }
   if (issues.length > 0) return { level, text: issues.join(", ") };
+  // Throttle state is not hardware health: a device exporting only the throttle bitmask stays "not exported".
   const known = [d.lastXid, d.eccDbe, d.rowRemapFailure, d.uncorrectableRemappedRows].some((v) => v !== undefined);
   return known ? { level: "ok", text: "OK" } : { level: "unknown", text: "not exported" };
 }
@@ -567,6 +587,26 @@ export function nodeHealth(devs: GpuDevice[], withdrawn = 0): { level: HealthLev
   const reporting = per.filter((x) => x.h.level === "ok").length;
   if (reporting === 0) return { level: "unknown", text: "not exported" };
   return { level: "ok", text: reporting === devs.length ? "OK" : `OK (${reporting} of ${devs.length} report)` };
+}
+
+/**
+ * Health of the devices a pod row uses: the worst of its GPUs (a MIG slice falls back to its physical card, which is
+ * where hardware gauges live). Undefined when none of them reports health.
+ */
+export function rowHealth(r: PodGPU, devs: GpuDevice[]): { level: HealthLevel; text: string } | undefined {
+  const byKey = new Map(devs.map((d) => [`${d.node}/${d.gpu}`, d]));
+  const rank = { bad: 0, warn: 1, ok: 2, unknown: 3 } as const;
+  let worst: { level: HealthLevel; text: string } | undefined;
+  for (const g of r.gpus) {
+    const d = byKey.get(`${r.node}/${g}`);
+    let h = d ? deviceHealth(d) : undefined;
+    if ((!h || h.level === "unknown") && g.includes(":")) {
+      const card = byKey.get(`${r.node}/${g.split(":")[0]}`);
+      if (card) h = deviceHealth(card);
+    }
+    if (h && h.level !== "unknown" && (!worst || rank[h.level] < rank[worst.level])) worst = h;
+  }
+  return worst;
 }
 
 /**

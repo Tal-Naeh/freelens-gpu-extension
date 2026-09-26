@@ -21,7 +21,32 @@ const IDLE_COLUMNS: Column<IdleRow>[] = [
     value: (r) => r.namespace,
     groupOf: (r) => r.namespace,
   },
-  { key: "pod", link: (r) => podLink(r.namespace, r.pod), title: "Pod", width: 360, min: 80, value: (r) => r.pod },
+  {
+    key: "pod",
+    link: (r) => podLink(r.namespace, r.pod),
+    title: "Pod",
+    width: 360,
+    min: 80,
+    value: (r) => r.pod,
+    render: (r) => {
+      const inf = gpuStore.inferenceRows.find((i) => i.namespace === r.namespace && i.pod === r.pod);
+      return (
+        <>
+          {r.pod}
+          {inf && (
+            <span
+              className="gpuext-badge gpuext-shared"
+              title={`vLLM server: it reserves ${
+                inf.sample?.gpuMemoryUtilization ? `${(inf.sample.gpuMemoryUtilization * 100).toFixed(0)}%` : "most"
+              } of the VRAM by design, so idle VRAM is expected; see Inference for its queue and KV cache`}
+            >
+              vLLM
+            </span>
+          )}
+        </>
+      );
+    },
+  },
   {
     key: "node",
     link: (r) => nodeLink(r.node),

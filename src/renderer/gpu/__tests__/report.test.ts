@@ -55,7 +55,7 @@ describe("report", () => {
     r.allocation[0].unhealthy = 1;
     r.pending = [{ namespace: "ml", pod: "a|b", requests: { "nvidia.com/gpu": 1 }, hints: ["No node offers gpu."] }];
     const md = reportMarkdown(r);
-    expect(md).toContain("🔴 dgx-1 GPU 0:7: XID 79");
+    expect(md).toContain("🔴 dgx-1 GPU 0:7: last XID 79");
     expect(md).toContain("🔴 dgx-1: 1 device(s) withdrawn");
     expect(md).toContain("| ml/a\\|b | gpu×1 | No node offers gpu. |");
     expect(md.indexOf("**Health**")).toBeLessThan(md.indexOf("**Pods**"));
