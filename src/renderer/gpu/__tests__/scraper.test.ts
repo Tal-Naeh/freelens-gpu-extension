@@ -140,3 +140,55 @@ describe("GpuScraper discovery sources", () => {
     expect(snap.exporters[0]).toMatchObject({ name: "metrics-agent-7f9c", port: 9500, kind: "dcgm" });
   });
 });
+
+describe("Prometheus fallback lifecycle", () => {
+  const countOk = JSON.stringify({ status: "success", data: { result: [{ metric: {}, value: [0, "1"] }] } });
+  const series = JSON.stringify({
+    status: "success",
+    data: {
+      result: [{ metric: { __name__: "DCGM_FI_DEV_FB_USED", gpu: "0", UUID: "GPU-a", node: "n1" }, value: [0, "1"] }],
+    },
+  });
+  const make = (fetchText: (path: string) => Promise<string>) =>
+    new GpuScraper({
+      clusterId: () => "c1",
+      listPods: async () => [],
+      listServices: async () => [{ namespace: "mon", name: "prometheus-server", ports: [{ name: "http", port: 80 }] }],
+      fetchText: async (_c, path) => fetchText(path),
+    });
+
+  it("probes once, then reuses the chosen query API on later ticks", async () => {
+    let probes = 0;
+    const s = make(async (p) => {
+      if (p.includes("count(")) {
+        probes++;
+        return countOk;
+      }
+      return series;
+    });
+    await s.snapshot();
+    await s.snapshot();
+    await s.snapshot();
+    expect(probes).toBe(1);
+    await s.snapshot(true); // Refresh re-probes
+    expect(probes).toBe(2);
+  });
+
+  it("a failing query gives the explanatory error, forgets the target, and re-probes next tick", async () => {
+    let probes = 0;
+    let fail = true;
+    const s = make(async (p) => {
+      if (p.includes("count(")) {
+        probes++;
+        return countOk;
+      }
+      if (fail) throw new Error("HTTP 503 Service Unavailable");
+      return series;
+    });
+    await expect(s.snapshot()).rejects.toThrow(/No GPU metrics exporter found[\s\S]*query failed: HTTP 503/);
+    fail = false;
+    const snap = await s.snapshot();
+    expect(probes).toBe(2);
+    expect(snap.gpus[0]).toMatchObject({ node: "n1" });
+  });
+});

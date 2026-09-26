@@ -2,7 +2,7 @@ import { Renderer as R } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import React from "react";
 import { type Column, DataGrid } from "../components/data-grid";
-import { nodeLink, podLink } from "../components/links";
+import { nodeLink, podLink, serviceLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { gpuStore } from "../gpu/store";
 import { formatTarget } from "../gpu/targets";
@@ -14,7 +14,14 @@ import type { ExporterScrape } from "../gpu/types";
 
 const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
   { key: "ns", title: "Namespace", width: 150, min: 60, value: (e) => e.namespace, groupOf: (e) => e.namespace },
-  { key: "name", link: (e) => podLink(e.namespace, e.name), title: "Pod", width: 320, min: 80, value: (e) => e.name },
+  {
+    key: "name",
+    link: (e) => (e.via === "prometheus" ? serviceLink(e.namespace, e.name) : podLink(e.namespace, e.name)),
+    title: "Pod",
+    width: 320,
+    min: 80,
+    value: (e) => e.name,
+  },
   { key: "port", title: "Port", width: 70, min: 50, num: true, value: (e) => e.port },
   {
     key: "kind",
@@ -31,7 +38,7 @@ const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
   },
   {
     key: "node",
-    link: (e) => nodeLink(e.nodeName),
+    link: (e) => (e.via === "prometheus" || e.nodeName.includes(",") ? undefined : nodeLink(e.nodeName)),
     title: "Node",
     width: 220,
     min: 80,

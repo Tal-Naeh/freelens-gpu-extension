@@ -95,6 +95,29 @@ describe("Prometheus fallback", () => {
     });
   });
 
+  it("prefers the service-discovery node label over DCGM's Hostname (the exporter pod name without NODE_NAME)", () => {
+    const [g] = promResultToNodeFamilies(
+      JSON.stringify({
+        status: "success",
+        data: {
+          result: [
+            {
+              metric: {
+                __name__: "DCGM_FI_DEV_FB_USED",
+                gpu: "0",
+                Hostname: "nvidia-dcgm-exporter-x7k2p",
+                node: "gpu-node-3",
+              },
+              value: [0, "1"],
+            },
+          ],
+        },
+      }),
+    );
+    expect(g.node).toBe("gpu-node-3");
+    expect(aggregateDevicesDcgm(g.fams, g.node)[0].node).toBe("gpu-node-3");
+  });
+
   it("rejects error and non-JSON responses clearly", () => {
     expect(() => seriesCount(JSON.stringify({ status: "error", error: "bad query" }))).toThrow("bad query");
     expect(() => seriesCount("<html>404</html>")).toThrow(/not a Prometheus API response/);

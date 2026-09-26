@@ -111,7 +111,8 @@ export function promResultToNodeFamilies(json: string): NodeFamilies[] {
       delete labels.container;
     }
     for (const k of SCRAPE_LABELS) delete labels[k];
-    const node = labels.Hostname || labels.node || labels.kubernetes_node || labels.nodename || "";
+    // Service discovery's node label is authoritative; DCGM's Hostname is the exporter pod name unless NODE_NAME is set.
+    const node = labels.node || labels.kubernetes_node || labels.nodename || labels.Hostname || "";
     if (node) labels.Hostname = node;
     const key = `${name}{${Object.keys(labels)
       .sort()

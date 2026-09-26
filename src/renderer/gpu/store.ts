@@ -253,7 +253,8 @@ export class GpuStore {
       }
     }
     this.scraper.invalidate();
-    void this.refresh(true);
+    // refresh() returns the in-flight scrape if one is running; chain a fresh one so the pin applies now.
+    void (this.inflight ?? Promise.resolve()).then(() => this.refresh(true));
   }
 
   /** Everything the "Copy snapshot" buttons export. */

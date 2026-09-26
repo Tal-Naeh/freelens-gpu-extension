@@ -198,6 +198,7 @@ export class GpuScraper {
 
   invalidate() {
     this.discoveredAt = 0;
+    this.prom = undefined;
   }
 
   get exporters(): ExporterPod[] {
@@ -289,7 +290,6 @@ export class GpuScraper {
     this.lastProbes = probes;
     this.discovered = probed.filter((x): x is ExporterPod => !!x);
     this.discoveredAt = Date.now();
-    this.prom = undefined;
     log.info(
       `discovery: ${pods.length} pods, ${candidates.length} candidates, ${this.discovered.length} exporters; ` +
         probes.map((p) => `${p.target}=${p.outcome}${p.detail ? ` (${p.detail})` : ""}`).join("; "),
@@ -298,6 +298,7 @@ export class GpuScraper {
   }
 
   async snapshot(force = false): Promise<Snapshot> {
+    if (force) this.prom = undefined;
     const exporters = await this.discover(force);
     const clusterId = this.deps.clusterId();
     if (!clusterId) throw new Error("no active cluster");
@@ -393,13 +394,27 @@ export class GpuScraper {
       this.prom = target;
     }
     const t0 = performance.now();
-    const text = await this.deps.fetchText(
-      clusterId,
-      promQueryPath(target, selectorFor([...DCGM_METRICS, ...ENRICHER_METRICS])),
-      SCRAPE_TIMEOUT_MS,
-    );
+    let text: string;
+    let groups: ReturnType<typeof promResultToNodeFamilies>;
+    try {
+      text = await this.deps.fetchText(
+        clusterId,
+        promQueryPath(target, selectorFor([...DCGM_METRICS, ...ENRICHER_METRICS])),
+        SCRAPE_TIMEOUT_MS,
+      );
+      groups = promResultToNodeFamilies(text);
+    } catch (e) {
+      // Forget it so the next tick probes again (it may be restarting, or another candidate may work).
+      this.prom = undefined;
+      this.lastProbes.push({
+        target: `prometheus ${target.namespace}/svc/${target.name}:${target.port}`,
+        outcome: "error",
+        detail: `query failed: ${describe(e)}`,
+      });
+      return undefined;
+    }
     const latencyMs = Math.round(performance.now() - t0);
-    const bodies = promResultToNodeFamilies(text).map((g) => ({
+    const bodies = groups.map((g) => ({
       ex: {
         namespace: target.namespace,
         name: target.name,
