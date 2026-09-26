@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+- **Open from any table**: pod, node and namespace names in every GPU view open Freelens' own details panel.
+- **Copy snapshot**: *Copy JSON* / *Copy Markdown* on every page — the whole cluster's GPU state (health issues and
+  waiting pods first, then allocation, namespaces, pods, exporters) for Slack / Jira during an incident.
+- **Pinned targets** (Exporters page, per cluster): `namespace/pod-prefix:port` for exporter pods discovery misses
+  (matched by name prefix, so DaemonSet restarts keep working) and `namespace/svc/name:port` for a Prometheus.
+- **Prometheus fallback**: when no exporter pod answers, the same metrics are read from a Prometheus / Thanos /
+  VictoriaMetrics / Mimir query API in the cluster through the service proxy — found automatically (alertmanager,
+  operators and exporters skipped) or pinned — with Prometheus' label rewriting undone (`exported_*`, series stamped
+  with the exporter pod, HA duplicates) and the service-discovery node label trusted over DCGM's `Hostname`. Verified
+  against a live kube-prometheus-style setup: identical devices, pods and namespaces to a direct scrape.
+- **Node health**: Allocation *Health* column and a Node drawer badge — the node's worst device, red whenever the
+  device plugin withdrew GPUs even with no health gauges, and "OK (1 of 48 report)" to show coverage.
+- Configurable colour thresholds were considered and left out (no user demand found).
+
 ## 0.5.0
 
 Four new capabilities, chosen from what Kubernetes GPU users ask for most (dcgm-exporter / device-plugin / GPU Operator

@@ -17,17 +17,24 @@ It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubec
 
 - **Autodiscovery** — lists pods, keeps Running ones whose name, image or labels mention `dcgm`, `gpu`, `nvidia` or
   `cuda`, probes each `/metrics` and classifies by content: NVIDIA **dcgm-exporter** (`DCGM_FI_DEV_*`) or a
-  **per-process exporter** (`gpu_process_memory_bytes`). Nothing to configure, nothing to deploy.
+  **per-process exporter** (`gpu_process_memory_bytes`). Nothing to configure, nothing to deploy. If discovery misses
+  yours, **pin** it per cluster on the Exporters page (`namespace/pod-prefix:port`).
+- **Prometheus fallback** — when no exporter pod answers, reads the same metrics from a Prometheus / Thanos /
+  VictoriaMetrics / Mimir query API already in the cluster (found automatically, or pinned as
+  `namespace/svc/name:port`) through the service proxy, repairing the labels Prometheus rewrites.
 - **Zero cluster footprint** — reads `/metrics` through the kube-apiserver pod-proxy subresource over Freelens' own
-  cluster connection. No DaemonSet, no Prometheus, no port-forward, no RBAC beyond `list pods`, `list nodes`,
-  `get pods/proxy`.
+  cluster connection. No DaemonSet, no Prometheus required, no port-forward, no RBAC beyond `list pods`, `list nodes`,
+  `get pods/proxy` (plus `list services` and `get services/proxy` for the Prometheus fallback).
 - **Correct attribution** — per pod when the exporter carries pod labels; per MIG slice on partitioned cards (rows
   grouped under their physical GPU); per process when workloads bypass the device plugin with
   `NVIDIA_VISIBLE_DEVICES=all`; graceful per-(node, GPU) fallback with candidate pods otherwise. Same rules as
   [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubectl-gpugo), so CLI and GUI agree.
 - **Seven views** under a **GPU** sidebar group (below), plus GPU sections in the Pod and Node detail drawers.
 - **Tables that behave** — click a header to sort, drag its right edge to resize (double-click resets, widths are
-  remembered), sticky header while scrolling, full text on hover.
+  remembered), sticky header while scrolling, full text on hover; pod, node and namespace names open Freelens' own
+  details panel.
+- **Copy snapshot** — every page has *Copy JSON* / *Copy Markdown*: the whole cluster's GPU state (health issues and
+  waiting pods first) ready to paste into Slack or Jira during an incident.
 - **Honest numbers** — device gauges are never double-counted; MIG power is counted once per card; pods on a shared or
   time-sliced GPU are badged because dcgm-exporter reports device-level numbers for them; the profiling counters (SM /
   tensor / memory activity) sit next to "GPU %", which is only kernel time; health shows "not exported" rather than a
@@ -44,15 +51,16 @@ exporter):
 | **Namespaces** | Whose GPUs are these, and are they using them: per namespace, devices requested (by resource), devices in use, mean utilisation, VRAM held, VRAM held idle, pods waiting, power. |
 | **GPUs** | One row per physical GPU or MIG slice: model, MIG profile, utilisation, **SM active / Tensor / Mem BW** (DCGM profiling counters), VRAM used / total / %, power, temperature, **Health** (XID, uncorrectable ECC, row remapping), and the pods sharing it. Cards with no pod are listed too. |
 | **Idle & waste** | Pods holding VRAM at under 5 % utilisation, with how long they have been idle (history kept while Freelens is open). The first place to look before buying more GPUs. |
-| **Allocation** | Per node: GPU capacity (`nvidia.com/gpu` + `nvidia.com/mig-*`), allocatable, **unhealthy** (capacity − allocatable), what pods request, **free MIG slices per profile**, and what the exporters measure as busy. Scheduler view and reality side by side. |
+| **Allocation** | Per node: **health** (worst device, red when the device plugin withdrew GPUs), GPU capacity (`nvidia.com/gpu` + `nvidia.com/mig-*`), allocatable, **unhealthy** (capacity − allocatable), what pods request, **free MIG slices per profile**, and what the exporters measure as busy. Scheduler view and reality side by side. |
 | **Pending** | Pods waiting for a GPU: how long, what they request, the scheduler's message, and a **Why** for requests that can never fit (a resource no node offers, `nvidia.com/gpu` on a MIG-partitioned cluster, more devices than any node has). |
-| **Exporters** | What discovery found: each exporter's kind, node, scrape latency and body size, plus every candidate probed and why it was or wasn't accepted. |
+| **Exporters** | What discovery found: each exporter's kind (or "via Prometheus"), node, scrape latency and body size, every candidate probed and why it was or wasn't accepted, and the **pinned targets** for this cluster. |
 
 Every table sorts on header click, resizes by dragging the header edge (double-click resets, widths are remembered), keeps its header visible while scrolling, and shows the full text of a truncated cell on hover.
 
 Also:
 - **Pod details drawer**: a GPU section for pods that hold a GPU (silent for the rest).
-- **Node details drawer**: device summary (count, model, VRAM, power, max temperature) plus every GPU row on that node.
+- **Node details drawer**: health badge, device summary (count, model, VRAM, power, max temperature) plus every GPU row
+  on that node.
 - The page title carries the extension version so you always know what you are looking at.
 
 | Column | Meaning |
