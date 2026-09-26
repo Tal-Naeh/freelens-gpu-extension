@@ -1,11 +1,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { aggregateByPod, extractDcgmSamples } from "../aggregate";
+import {
+  aggregateByPod,
+  aggregateDevicesDcgm,
+  attributedPower,
+  devicePowerShares,
+  extractDcgmSamples,
+  totalPowerW,
+} from "../aggregate";
 import { aggregateNamespaces, migFree } from "../namespaces";
 import { parsePrometheusText } from "../prom";
 
-import type { PodGPU } from "../types";
+import type { GpuDevice, PodGPU } from "../types";
 
 const dgx = parsePrometheusText(readFileSync(join(__dirname, "fixtures", "dgx_a100_mig_mixed.prom"), "utf8"));
 
@@ -108,5 +115,59 @@ describe("migFree", () => {
   it("is empty for a node without MIG and never negative", () => {
     expect(migFree({ "nvidia.com/gpu": 8 }, { "nvidia.com/gpu": 8 })).toEqual([]);
     expect(migFree({ "nvidia.com/mig-1g.10gb": 2 }, { "nvidia.com/mig-1g.10gb": 5 })[0].free).toBe(0);
+  });
+});
+
+describe("MIG power attribution", () => {
+  it("real DGX capture: per-pod and per-namespace power add up to the cards, not to cards x slices", () => {
+    const devs = aggregateDevicesDcgm(dgx, "dgx-1");
+    const shares = devicePowerShares(devs);
+    const rows = aggregateByPod(extractDcgmSamples(dgx, "dgx-1")).map((r) => ({
+      ...r,
+      powerWatts: attributedPower(r, shares),
+    }));
+    const podPower = rows.reduce((s, r) => s + r.powerWatts, 0);
+    // 29 pods on MIG slices: before, each carried its card's ~104 W (~3,000 W in total)
+    expect(podPower).toBeLessThanOrEqual(totalPowerW(devs));
+    expect(podPower).toBeGreaterThan(300);
+    const ns = aggregateNamespaces({}, rows, [], []);
+    expect(ns.reduce((s, n) => s + n.powerWatts, 0)).toBeCloseTo(podPower, 6);
+  });
+  it("weights a slice by its compute size among the card's slices", () => {
+    const slice = (gpu: string, profile: string): GpuDevice => ({
+      node: "n",
+      gpu,
+      uuid: "GPU-a",
+      migProfile: profile,
+      utilPct: 0,
+      vramUsedMiB: 0,
+      vramTotalMiB: 0,
+      powerWatts: 140,
+      pods: [],
+    });
+    const shares = devicePowerShares([
+      slice("2:2", "3g.40gb"),
+      slice("2:7", "1g.10gb"),
+      slice("2:8", "1g.10gb"),
+      slice("2:9", "1g.10gb"),
+      slice("2:10", "1g.10gb"),
+    ]);
+    expect(shares.get("n/2:2")).toBeCloseTo(60); // 3/7 of 140 W
+    expect(shares.get("n/2:7")).toBeCloseTo(20); // 1/7
+    expect([...shares.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(140);
+  });
+  it("leaves whole GPUs and per-process rows alone", () => {
+    const whole: GpuDevice = {
+      node: "n",
+      gpu: "4",
+      utilPct: 0,
+      vramUsedMiB: 0,
+      vramTotalMiB: 0,
+      powerWatts: 66,
+      pods: [],
+    };
+    const shares = devicePowerShares([whole]);
+    expect(attributedPower(row("ml", "a", { source: "dcgm", gpus: ["4"], powerWatts: 66 }), shares)).toBe(66);
+    expect(attributedPower(row("ml", "b", { source: "enricher", gpus: ["4"], powerWatts: 12 }), shares)).toBe(12);
   });
 });
