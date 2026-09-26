@@ -23,6 +23,7 @@ import {
   gpuResourceCount,
   usesGpuResource,
 } from "./aggregate";
+import { classifyInference, INFERENCE_HINT, type InferenceEngine, parseVllm, type VllmSample } from "./inference";
 import { gpuRequestsOf, type PendingGpuPod } from "./pending";
 import { classifyMetrics, type Families, parsePrometheusText } from "./prom";
 import {
@@ -48,6 +49,47 @@ const DISCOVERY_TTL_MS = 60_000;
 function metricsPath(ns: string, name: string, port: number): string {
   return `/api/v1/namespaces/${ns}/pods/${name}:${port}/proxy/metrics`;
 }
+
+/** Name, images and labels of a pod, lower-cased, for keyword matching. */
+function podHaystack(pod: Pod): string {
+  return [
+    pod.getName(),
+    ...pod.getContainers().map((c) => c.image ?? ""),
+    ...Object.entries(pod.metadata.labels ?? {}).flatMap(([k, v]) => [k, v]),
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Where an inference server serves /metrics: annotation, a port named metrics/http, vLLM's default 8000, else the first. */
+function inferencePort(pod: Pod): number {
+  const ann = pod.metadata.annotations?.["prometheus.io/port"];
+  if (ann && /^\d+$/.test(ann)) return Number(ann);
+  const ports = pod.getContainers().flatMap((c) => c.ports ?? []);
+  return (
+    ports.find((p) => p.name === "metrics")?.containerPort ??
+    ports.find((p) => p.name === "http")?.containerPort ??
+    ports.find((p) => p.containerPort === 8000)?.containerPort ??
+    ports[0]?.containerPort ??
+    0
+  );
+}
+
+export interface InferenceTarget {
+  namespace: string;
+  pod: string;
+  node: string;
+  port: number;
+  engine: InferenceEngine;
+}
+
+export interface InferenceScrape extends InferenceTarget {
+  at: number;
+  sample?: VllmSample;
+  error?: string;
+}
+
+const NOT_INFERENCE_TTL_MS = 10 * 60_000;
 
 function looksGpuRelated(pod: Pod): boolean {
   const hay = [
@@ -195,6 +237,10 @@ export class GpuScraper {
   pins: Target[] = [];
   /** Prometheus query API chosen by the last fallback, reused until discovery runs again. */
   private prom: PromTarget | undefined;
+  /** Inference servers found by the last discovery. */
+  inferenceTargets: InferenceTarget[] = [];
+  /** Pods probed and found not to be inference servers ("ns/pod" -> retry after), so GPU pods are not re-probed every tick. */
+  private notInference = new Map<string, number>();
 
   invalidate() {
     this.discoveredAt = 0;
@@ -263,6 +309,7 @@ export class GpuScraper {
     const byId = new Map<string, Candidate>();
     for (const c of [...auto, ...pinned]) byId.set(`${c.ns}/${c.name}`, c); // a pin overrides the guessed port
     const candidates = [...byId.values()];
+    const inferenceProbe = this.discoverInference(pods, clusterId);
     this.lastCandidateCount = candidates.length;
     const probes: ProbeResult[] = [];
     const probed = await Promise.all(
@@ -287,6 +334,7 @@ export class GpuScraper {
         }
       }),
     );
+    await inferenceProbe;
     this.lastProbes = probes;
     this.discovered = probed.filter((x): x is ExporterPod => !!x);
     this.discoveredAt = Date.now();
@@ -295,6 +343,61 @@ export class GpuScraper {
         probes.map((p) => `${p.target}=${p.outcome}${p.detail ? ` (${p.detail})` : ""}`).join("; "),
     );
     return this.discovered;
+  }
+
+  /**
+   * Inference servers: Running pods that request a GPU or look like one (vllm, sglang, triton, kserve), probed once and
+   * kept when their /metrics carries an engine's metrics. Pods that are not are skipped for 10 minutes.
+   */
+  private async discoverInference(pods: Pod[], clusterId: string): Promise<void> {
+    const now = Date.now();
+    for (const [k, until] of this.notInference) if (until <= now) this.notInference.delete(k);
+    const known = new Map(this.inferenceTargets.map((t) => [`${t.namespace}/${t.pod}`, t]));
+    const next: InferenceTarget[] = [];
+    await Promise.all(
+      pods
+        .filter((p) => p.getStatusPhase() === "Running" && (requestsGpu(p) || INFERENCE_HINT.test(podHaystack(p))))
+        .map(async (p) => {
+          const key = `${p.getNs()}/${p.getName()}`;
+          const hit = known.get(key);
+          if (hit) {
+            next.push(hit);
+            return;
+          }
+          if (this.notInference.has(key)) return;
+          const port = inferencePort(p);
+          if (port <= 0) return;
+          try {
+            const engine = classifyInference(
+              await this.deps.fetchText(clusterId, metricsPath(p.getNs(), p.getName(), port), PROBE_TIMEOUT_MS),
+            );
+            if (engine) {
+              next.push({ namespace: p.getNs(), pod: p.getName(), node: p.getNodeName() ?? "", port, engine });
+              return;
+            }
+          } catch {
+            /* not serving /metrics there */
+          }
+          this.notInference.set(key, now + NOT_INFERENCE_TTL_MS);
+        }),
+    );
+    this.inferenceTargets = next.sort((a, b) => (`${a.namespace}/${a.pod}` < `${b.namespace}/${b.pod}` ? -1 : 1));
+  }
+
+  /** Scrape every inference server found by discovery; independent of the GPU exporters. */
+  async scrapeInference(): Promise<InferenceScrape[]> {
+    const clusterId = this.deps.clusterId();
+    if (!clusterId) return [];
+    return Promise.all(
+      this.inferenceTargets.map(async (t): Promise<InferenceScrape> => {
+        try {
+          const text = await this.deps.fetchText(clusterId, metricsPath(t.namespace, t.pod, t.port), SCRAPE_TIMEOUT_MS);
+          return { ...t, at: Date.now(), sample: parseVllm(parsePrometheusText(text)) };
+        } catch (e) {
+          return { ...t, at: Date.now(), error: describe(e) };
+        }
+      }),
+    );
   }
 
   async snapshot(force = false): Promise<Snapshot> {

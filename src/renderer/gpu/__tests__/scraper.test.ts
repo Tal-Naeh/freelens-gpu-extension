@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 // The scraper imports the Freelens API for its default deps; tests inject their own, so stub the module.
@@ -12,6 +14,7 @@ type FakePod = {
   node?: string;
   limits?: Record<string, string>;
   scheduled?: { status: string; reason?: string; message?: string };
+  ports?: number[];
 };
 
 const pod = (p: FakePod) => ({
@@ -19,7 +22,14 @@ const pod = (p: FakePod) => ({
   getName: () => p.name,
   getStatusPhase: () => p.phase,
   getNodeName: () => p.node,
-  getContainers: () => [{ name: "c", image: "app:1", resources: { limits: p.limits ?? {} } }],
+  getContainers: () => [
+    {
+      name: "c",
+      image: "app:1",
+      resources: { limits: p.limits ?? {} },
+      ports: (p.ports ?? []).map((containerPort) => ({ containerPort })),
+    },
+  ],
   metadata: { labels: {}, annotations: {}, creationTimestamp: "2026-09-24T10:00:00Z" },
   status: { conditions: p.scheduled ? [{ type: "PodScheduled", ...p.scheduled }] : [] },
 });
@@ -190,5 +200,51 @@ describe("Prometheus fallback lifecycle", () => {
     const snap = await s.snapshot();
     expect(probes).toBe(2);
     expect(snap.gpus[0]).toMatchObject({ node: "n1" });
+  });
+});
+
+describe("GpuScraper inference discovery", () => {
+  const vllm = readFileSync(join(__dirname, "fixtures", "vllm_v1_idle.prom"), "utf8");
+  it("finds a vLLM pod among GPU pods, skips non-servers for a while, and scrapes it without any GPU exporter", async () => {
+    const server = pod({
+      ns: "vllm",
+      name: "vllm-7645db44c9-8rn4j",
+      phase: "Running",
+      node: "n1",
+      limits: { "nvidia.com/gpu": "1" },
+      ports: [8000],
+    });
+    const worker = pod({
+      ns: "ml",
+      name: "trainer-0",
+      phase: "Running",
+      node: "n1",
+      limits: { "nvidia.com/gpu": "1" },
+      ports: [8000],
+    });
+    const cpu = pod({ ns: "web", name: "api-0", phase: "Running", node: "n1" });
+    const calls: string[] = [];
+    const s = new GpuScraper({
+      clusterId: () => "c1",
+      listPods: async () => [server, worker, cpu] as never,
+      listServices: async () => [],
+      fetchText: async (_c, path) => {
+        calls.push(path);
+        if (path.includes("vllm-7645db44c9-8rn4j")) return vllm;
+        if (path.includes("trainer-0")) return "# not an inference server\nprocess_cpu_seconds_total 1\n";
+        throw new Error("404");
+      },
+    });
+    await expect(s.snapshot()).rejects.toThrow(); // no GPU exporter at all
+    expect(s.inferenceTargets).toEqual([
+      { namespace: "vllm", pod: "vllm-7645db44c9-8rn4j", node: "n1", port: 8000, engine: "vllm" },
+    ]);
+    const [scrape] = await s.scrapeInference();
+    expect(scrape.sample?.models).toEqual(["gemma-4-E4B-it"]);
+    expect(calls.some((c) => c.includes("api-0"))).toBe(false); // CPU pods without hints are never probed
+
+    calls.length = 0;
+    await expect(s.snapshot()).rejects.toThrow();
+    expect(calls.filter((c) => c.includes("trainer-0"))).toEqual([]); // remembered as not-a-server
   });
 });
