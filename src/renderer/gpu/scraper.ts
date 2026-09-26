@@ -17,13 +17,25 @@ import {
   aggregateDevicesDcgm,
   aggregateDevicesEnricher,
   buildEnricherRows,
+  DCGM_METRICS,
+  ENRICHER_METRICS,
   extractDcgmSamples,
   gpuResourceCount,
   usesGpuResource,
 } from "./aggregate";
 import { gpuRequestsOf, type PendingGpuPod } from "./pending";
-import { classifyMetrics, parsePrometheusText } from "./prom";
+import { classifyMetrics, type Families, parsePrometheusText } from "./prom";
+import {
+  type PromTarget,
+  promCandidates,
+  promQueryPath,
+  promResultToNodeFamilies,
+  type ServiceLike,
+  selectorFor,
+  seriesCount,
+} from "./prometheus";
 
+import type { Target } from "./targets";
 import type { ExporterPod, ExporterScrape, GpuDevice, GpuRequests, PodGPU, PodState, Snapshot } from "./types";
 
 type Pod = Renderer.K8sApi.Pod;
@@ -100,12 +112,20 @@ function pendingOf(pod: Pod): PendingGpuPod[] {
 export interface ScraperDeps {
   clusterId: () => string | undefined;
   listPods: () => Promise<Pod[]>;
+  /** Services, for the Prometheus fallback. */
+  listServices: () => Promise<ServiceLike[]>;
   fetchText: (clusterId: string, path: string, timeoutMs: number) => Promise<string>;
 }
 
 const defaultDeps: ScraperDeps = {
   clusterId: () => Renderer.Catalog.getActiveCluster()?.id ?? Renderer.Catalog.activeCluster.get()?.getId(),
   listPods: async () => (await Renderer.K8sApi.podsApi.list()) ?? [],
+  listServices: async () =>
+    ((await Renderer.K8sApi.serviceApi.list()) ?? []).map((svc) => ({
+      namespace: svc.getNs() ?? "",
+      name: svc.getName(),
+      ports: (svc.spec?.ports ?? []).map((p) => ({ name: p.name, port: p.port })),
+    })),
   fetchText: async (clusterId, path, timeoutMs) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -153,7 +173,7 @@ function describe(e: unknown): string {
 
 export interface ProbeResult {
   target: string;
-  outcome: "dcgm" | "enricher" | "unrecognised" | "error";
+  outcome: "dcgm" | "enricher" | "prometheus" | "unrecognised" | "error";
   detail?: string;
 }
 
@@ -171,8 +191,10 @@ export class GpuScraper {
 
   constructor(private readonly deps: ScraperDeps = defaultDeps) {}
 
-  /** Explicit exporter targets (bypass auto-discovery), "ns/pod:port". */
-  explicit: { namespace: string; name: string; port: number }[] = [];
+  /** Pinned targets (user setting): probed in addition to auto-discovery; services are tried as Prometheus first. */
+  pins: Target[] = [];
+  /** Prometheus query API chosen by the last fallback, reused until discovery runs again. */
+  private prom: PromTarget | undefined;
 
   invalidate() {
     this.discoveredAt = 0;
@@ -222,17 +244,24 @@ export class GpuScraper {
       pending: pods.filter((p) => p.getStatusPhase() === "Pending" && requestsGpu(p)).flatMap(pendingOf),
     };
 
-    const candidates =
-      this.explicit.length > 0
-        ? this.explicit.map((e) => {
-            const pod = pods.find((p) => p.getNs() === e.namespace && p.getName() === e.name);
-            return { ns: e.namespace, name: e.name, port: e.port, node: pod?.getNodeName() ?? "" };
-          })
+    type Candidate = { ns: string; name: string; port: number; node: string };
+    const auto: Candidate[] = pods
+      .filter((p) => p.getStatusPhase() === "Running" && looksGpuRelated(p))
+      .map((p) => ({ ns: p.getNs(), name: p.getName(), port: metricsPort(p), node: p.getNodeName() ?? "" }))
+      .filter((c) => c.port > 0);
+    // Pinned pods: any Running pod whose name starts with the prefix, at the pinned port, whatever it looks like.
+    const pinned: Candidate[] = this.pins.flatMap((t) =>
+      t.kind !== "pod"
+        ? []
         : pods
-            .filter((p) => p.getStatusPhase() === "Running" && looksGpuRelated(p))
-            .map((p) => ({ ns: p.getNs(), name: p.getName(), port: metricsPort(p), node: p.getNodeName() ?? "" }))
-            .filter((c) => c.port > 0);
-
+            .filter(
+              (p) => p.getNs() === t.namespace && p.getName().startsWith(t.prefix) && p.getStatusPhase() === "Running",
+            )
+            .map((p) => ({ ns: t.namespace, name: p.getName(), port: t.port, node: p.getNodeName() ?? "" })),
+    );
+    const byId = new Map<string, Candidate>();
+    for (const c of [...auto, ...pinned]) byId.set(`${c.ns}/${c.name}`, c); // a pin overrides the guessed port
+    const candidates = [...byId.values()];
     this.lastCandidateCount = candidates.length;
     const probes: ProbeResult[] = [];
     const probed = await Promise.all(
@@ -260,6 +289,7 @@ export class GpuScraper {
     this.lastProbes = probes;
     this.discovered = probed.filter((x): x is ExporterPod => !!x);
     this.discoveredAt = Date.now();
+    this.prom = undefined;
     log.info(
       `discovery: ${pods.length} pods, ${candidates.length} candidates, ${this.discovered.length} exporters; ` +
         probes.map((p) => `${p.target}=${p.outcome}${p.detail ? ` (${p.detail})` : ""}`).join("; "),
@@ -272,9 +302,12 @@ export class GpuScraper {
     const clusterId = this.deps.clusterId();
     if (!clusterId) throw new Error("no active cluster");
     if (exporters.length === 0) {
+      const viaProm = await this.fromPrometheus(clusterId);
+      if (viaProm) return this.aggregate(viaProm.bodies, viaProm.scraped);
       const lines = [
         `No GPU metrics exporter found (${this.lastPodCount} pods listed, ${this.lastCandidateCount} GPU-looking candidates probed).`,
-        "An exporter is recognised when its /metrics emits DCGM_FI_DEV_* or gpu_process_memory_bytes.",
+        "An exporter is recognised when its /metrics emits DCGM_FI_DEV_* or gpu_process_memory_bytes; no Prometheus-compatible",
+        "query API with those series was found either. Pin a target on the Exporters page if discovery misses yours.",
         ...this.lastProbes.map((p) => `  ${p.target}: ${p.outcome}${p.detail ? ` — ${p.detail}` : ""}`),
       ];
       if (this.lastCandidateCount === 0 && this.lastPodCount === 0) {
@@ -308,11 +341,96 @@ export class GpuScraper {
       );
     }
 
-    const enrichers = ok.filter((b) => b.ex.kind === "enricher");
-    const dcgms = ok.filter((b) => b.ex.kind === "dcgm");
-
     // A scrape failing usually means the exporter pod was replaced; rediscover next tick.
     if (ok.length < exporters.length) this.invalidate();
+    return this.aggregate(ok, scraped);
+  }
+
+  /**
+   * No exporter pod answered: look for a Prometheus-compatible query API (pinned services first, then services that
+   * look like one), take the first that has GPU series, and read every family we use in a single instant query.
+   */
+  private async fromPrometheus(
+    clusterId: string,
+  ): Promise<{ bodies: { ex: ExporterPod; fams: Families }[]; scraped: ExporterScrape[] } | undefined> {
+    const probe = selectorFor(["DCGM_FI_DEV_FB_USED", "gpu_process_memory_bytes"]);
+    let target = this.prom;
+    if (!target) {
+      let services: ServiceLike[] = [];
+      try {
+        services = await this.deps.listServices();
+      } catch (e) {
+        this.lastProbes.push({ target: "services", outcome: "error", detail: `list services: ${describe(e)}` });
+      }
+      const pinned: PromTarget[] = this.pins.flatMap((t) =>
+        t.kind === "service" ? [{ namespace: t.namespace, name: t.name, port: t.port }] : [],
+      );
+      const seen = new Set<string>();
+      const candidates = [...pinned, ...promCandidates(services)]
+        .filter((t) => !seen.has(`${t.namespace}/${t.name}`) && seen.add(`${t.namespace}/${t.name}`))
+        .slice(0, 6);
+      for (const t of candidates) {
+        const label = `prometheus ${t.namespace}/svc/${t.name}:${t.port}`;
+        try {
+          const n = seriesCount(
+            await this.deps.fetchText(clusterId, promQueryPath(t, `count(${probe})`), PROBE_TIMEOUT_MS),
+          );
+          if (n > 0) {
+            this.lastProbes.push({ target: label, outcome: "prometheus" });
+            target = t;
+            break;
+          }
+          this.lastProbes.push({
+            target: label,
+            outcome: "unrecognised",
+            detail: "query API answers but has no GPU series",
+          });
+        } catch (e) {
+          this.lastProbes.push({ target: label, outcome: "error", detail: describe(e) });
+        }
+      }
+      if (!target) return undefined;
+      this.prom = target;
+    }
+    const t0 = performance.now();
+    const text = await this.deps.fetchText(
+      clusterId,
+      promQueryPath(target, selectorFor([...DCGM_METRICS, ...ENRICHER_METRICS])),
+      SCRAPE_TIMEOUT_MS,
+    );
+    const latencyMs = Math.round(performance.now() - t0);
+    const bodies = promResultToNodeFamilies(text).map((g) => ({
+      ex: {
+        namespace: target.namespace,
+        name: target.name,
+        port: target.port,
+        nodeName: g.node,
+        kind: g.kind,
+        via: "prometheus" as const,
+      },
+      fams: g.fams,
+    }));
+    if (bodies.length === 0) {
+      this.prom = undefined;
+      return undefined;
+    }
+    const scraped: ExporterScrape[] = [...new Set(bodies.map((b) => b.ex.kind))].map((kind) => ({
+      namespace: target.namespace,
+      name: target.name,
+      port: target.port,
+      nodeName: [...new Set(bodies.filter((b) => b.ex.kind === kind).map((b) => b.ex.nodeName))].join(", "),
+      kind,
+      via: "prometheus",
+      latencyMs,
+      bytes: text.length,
+    }));
+    return { bodies, scraped };
+  }
+
+  /** Scraped families (from exporter pods or a Prometheus) → rows and devices. */
+  private aggregate(ok: { ex: ExporterPod; fams: Families }[], scraped: ExporterScrape[]): Snapshot {
+    const enrichers = ok.filter((b) => b.ex.kind === "enricher");
+    const dcgms = ok.filter((b) => b.ex.kind === "dcgm");
 
     // Pod rows: the per-process exporter where it reports, DCGM for every other
     // node (mixed node pools must not drop the DCGM-only nodes).

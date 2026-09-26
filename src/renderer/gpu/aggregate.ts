@@ -46,6 +46,17 @@ const HEALTH_DCGM = [
 
 const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL", ...PROF_DCGM, ...HEALTH_DCGM];
 
+/** Every metric family the extension reads, per exporter kind (the Prometheus fallback queries exactly these). */
+export const DCGM_METRICS: readonly string[] = DEVICE_DCGM;
+export const ENRICHER_METRICS: readonly string[] = [
+  "gpu_process_memory_bytes",
+  "gpu_process_utilization_percent",
+  "gpu_total_memory_bytes",
+  "gpu_total_utilization_percent",
+  "gpu_power_usage_watts",
+  "gpu_temperature_celsius",
+];
+
 /** DCGM: flatten wanted families into (ns, pod, gpu, node, metric, value). */
 export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSample[] {
   const out: FlatSample[] = [];

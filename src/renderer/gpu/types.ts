@@ -11,6 +11,8 @@ export interface ExporterPod {
   port: number;
   nodeName: string;
   kind: ExporterKind;
+  /** Set when the metrics came from a Prometheus query API instead of the exporter pod itself. */
+  via?: "prometheus";
 }
 
 export interface PodGPU {

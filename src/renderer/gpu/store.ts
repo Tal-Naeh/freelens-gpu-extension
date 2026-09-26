@@ -19,6 +19,7 @@ import {
 import { aggregateNamespaces, migFree, type NamespaceRow } from "./namespaces";
 import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
 import { GpuScraper, type ProbeResult } from "./scraper";
+import { formatTarget, isTarget, parseTarget, type Target } from "./targets";
 
 import type { ReportInput } from "./report";
 import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, PodState, Snapshot } from "./types";
@@ -46,6 +47,9 @@ export interface PendingRow extends PendingGpuPod {
 
 export class GpuStore {
   @observable.ref snapshot: Snapshot | undefined = undefined;
+  /** Pinned exporter / Prometheus targets for the active cluster (persisted per cluster in localStorage). */
+  @observable.ref pins: Target[] = [];
+  private pinsLoadedFor: string | undefined;
   /** Pod-list state; updated even when the metrics snapshot fails (no exporter, scrape errors). */
   @observable.ref podState: PodState | undefined = undefined;
   @observable error: string | undefined = undefined;
@@ -199,6 +203,59 @@ export class GpuStore {
     return [...byNode.values()].sort((x, y) => (x.node < y.node ? -1 : 1));
   }
 
+  private pinsKey(clusterId: string) {
+    return `freelens-gpu-extension.pins.${clusterId}`;
+  }
+
+  /** Load this cluster's pins once (cluster frames are per cluster, but the key carries the id to be safe). */
+  private loadPins() {
+    const id = Renderer.Catalog.getActiveCluster()?.id;
+    if (!id || this.pinsLoadedFor === id) return;
+    this.pinsLoadedFor = id;
+    let saved: string[] = [];
+    try {
+      const raw = localStorage.getItem(this.pinsKey(id));
+      const arr = raw ? (JSON.parse(raw) as unknown) : [];
+      if (Array.isArray(arr)) saved = arr.filter((x): x is string => typeof x === "string");
+    } catch {
+      /* private window / blocked storage: no pins */
+    }
+    const pins = saved.map(parseTarget).filter(isTarget);
+    this.scraper.pins = pins;
+    runInAction(() => {
+      this.pins = pins;
+    });
+  }
+
+  /** Add a pin from user input; returns an error message for invalid input. */
+  addPin(raw: string): string | undefined {
+    const t = parseTarget(raw);
+    if (!isTarget(t)) return t.error;
+    const key = formatTarget(t);
+    this.setPins([...this.pins.filter((p) => formatTarget(p) !== key), t]);
+    return undefined;
+  }
+
+  removePin(t: Target) {
+    const key = formatTarget(t);
+    this.setPins(this.pins.filter((p) => formatTarget(p) !== key));
+  }
+
+  @action private setPins(pins: Target[]) {
+    this.pins = pins;
+    this.scraper.pins = pins;
+    const id = Renderer.Catalog.getActiveCluster()?.id;
+    if (id) {
+      try {
+        localStorage.setItem(this.pinsKey(id), JSON.stringify(pins.map(formatTarget)));
+      } catch {
+        /* not persisted; still applies for this session */
+      }
+    }
+    this.scraper.invalidate();
+    void this.refresh(true);
+  }
+
   /** Everything the "Copy snapshot" buttons export. */
   reportInput(extra: { cluster?: string; extensionVersion?: string } = {}): ReportInput {
     return {
@@ -283,6 +340,7 @@ export class GpuStore {
   }
 
   private async doRefresh(force: boolean) {
+    this.loadPins();
     this.setLoading(true);
     try {
       const [snap] = await Promise.all([this.scraper.snapshot(force), this.loadNodes()]);

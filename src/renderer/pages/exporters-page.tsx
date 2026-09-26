@@ -1,8 +1,11 @@
+import { Renderer as R } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
+import React from "react";
 import { type Column, DataGrid } from "../components/data-grid";
 import { nodeLink, podLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { gpuStore } from "../gpu/store";
+import { formatTarget } from "../gpu/targets";
 
 import type { Renderer } from "@freelensapp/extensions";
 
@@ -16,10 +19,15 @@ const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
   {
     key: "kind",
     title: "Kind",
-    width: 100,
+    width: 170,
     min: 60,
-    value: (e) => e.kind,
-    render: (e) => <span className="gpuext-badge">{e.kind === "dcgm" ? "dcgm-exporter" : "per-process"}</span>,
+    value: (e) => `${e.kind}${e.via ? ` ${e.via}` : ""}`,
+    render: (e) => (
+      <span className="gpuext-badge">
+        {e.kind === "dcgm" ? "dcgm-exporter" : "per-process"}
+        {e.via === "prometheus" ? " via Prometheus" : ""}
+      </span>
+    ),
   },
   {
     key: "node",
@@ -58,6 +66,55 @@ const PROBE_COLUMNS: Column<ProbeResult>[] = [
   { key: "detail", title: "Detail", width: 600, min: 100, value: (p) => p.detail ?? "", className: "gpuext-dim" },
 ];
 
+const { Button, Input } = R.Component;
+
+/** Pinned targets: exporter pods or a Prometheus service that discovery would not find on its own. */
+const PinEditor = observer(() => {
+  const [value, setValue] = React.useState("");
+  const [error, setError] = React.useState<string>();
+  const add = () => {
+    const err = gpuStore.addPin(value);
+    setError(err);
+    if (!err) setValue("");
+  };
+  return (
+    <div className="gpuext-pins">
+      <div className="gpuext-hint">
+        Pin a target when discovery misses it — <code>namespace/pod-prefix:port</code> for exporter pods (matched by
+        name prefix, so DaemonSet restarts keep working) or <code>namespace/svc/name:port</code> for a
+        Prometheus-compatible query API (used when no exporter pod answers). Pins are kept per cluster on this machine.
+      </div>
+      <div className="gpuext-actions">
+        <Input
+          placeholder="gpu-mon/my-exporter:9400  or  monitoring/svc/vm-single:8428"
+          value={value}
+          onChange={(v: string) => {
+            setValue(v);
+            setError(undefined);
+          }}
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if (e.key === "Enter") add();
+          }}
+        />
+        <Button primary label="Pin" disabled={!value.trim()} onClick={add} />
+      </div>
+      {error && <div className="gpuext-error">{error}</div>}
+      {gpuStore.pins.length > 0 && (
+        <div className="gpuext-pin-list">
+          {gpuStore.pins.map((t) => (
+            <span key={formatTarget(t)} className="gpuext-badge gpuext-mono">
+              {formatTarget(t)}{" "}
+              <button type="button" className="gpuext-link" title="Remove pin" onClick={() => gpuStore.removePin(t)}>
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export const ExportersPage = observer(({ extension }: { extension: Renderer.LensExtension }) => {
   const snap = gpuStore.snapshot;
   const exporters = snap?.exporters ?? [];
@@ -70,10 +127,13 @@ export const ExportersPage = observer(({ extension }: { extension: Renderer.Lens
         <>
           How GPU metrics reach this view. Discovery lists pods, keeps Running ones whose name/image/labels mention
           dcgm, gpu, nvidia or cuda, probes each <code>/metrics</code> through the apiserver pod-proxy and classifies by
-          content. Discovery is cached for 60 s; Refresh re-runs it.
+          content. If no exporter pod answers, a Prometheus-compatible query API in the cluster is used instead.
+          Discovery is cached for 60 s; Refresh re-runs it.
         </>
       }
     >
+      <h3 className="gpuext-h3">Pinned targets ({gpuStore.pins.length})</h3>
+      <PinEditor />
       <h3 className="gpuext-h3">Scraped exporters ({exporters.length})</h3>
       <DataGrid
         id="exporters"
