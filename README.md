@@ -9,9 +9,15 @@ Zero cluster footprint. The extension auto-discovers a GPU metrics exporter you 
 
 It is the GUI counterpart of [`kubectl-gpugo`](https://github.com/Tal-Naeh/kubectl-gpugo) (`kubectl krew install gpugo`) and shares its attribution rules and data model, so both tools show the same numbers.
 
-![GPUs view: 48 MIG slices on A100s, with model, profile, utilisation, VRAM, power and temperature](docs/screenshots/gpus-mig.png)
+![Namespaces view: devices requested and in use per namespace, VRAM held idle, pods waiting and each namespace's share of the power](docs/screenshots/namespaces.png)
 
-![Idle & waste view: pods holding VRAM at 0 % utilisation, sorted by VRAM held](docs/screenshots/idle-waste.png)
+![GPUs view: 48 MIG slices on 8× A100, with profile, utilisation, SM / tensor / memory activity, VRAM and the node's real 804 W](docs/screenshots/gpus.png)
+
+![Allocation view: node health, capacity vs requests, and free MIG slices per profile](docs/screenshots/allocation.png)
+
+![Inference view: a vLLM server next to its GPU, with KV cache, queue, tokens/s and time to first token](docs/screenshots/inference.png)
+
+Screenshots from an 8× A100 DGX with MIG; node and internal namespace names are blacked out.
 
 ## Features
 
