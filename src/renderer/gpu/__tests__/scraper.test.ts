@@ -248,3 +248,80 @@ describe("GpuScraper inference discovery", () => {
     expect(calls.filter((c) => c.includes("trainer-0"))).toEqual([]); // remembered as not-a-server
   });
 });
+
+describe("inference probe caching", () => {
+  const vllmText = readFileSync(join(__dirname, "fixtures", "vllm_v1_idle.prom"), "utf8");
+  it("does not probe (or blacklist) a server whose containers are still starting, then finds it once ready", async () => {
+    const p = pod({
+      ns: "vllm",
+      name: "vllm-0",
+      phase: "Running",
+      node: "n1",
+      limits: { "nvidia.com/gpu": "1" },
+      ports: [8000],
+    });
+    const status = p.status as { containerStatuses?: { ready: boolean }[] };
+    status.containerStatuses = [{ ready: false }]; // loading the model
+    const calls: string[] = [];
+    const s = new GpuScraper({
+      clusterId: () => "c1",
+      listPods: async () => [p] as never,
+      listServices: async () => [],
+      fetchText: async (_c, path) => {
+        calls.push(path);
+        return vllmText;
+      },
+    });
+    await expect(s.snapshot()).rejects.toThrow();
+    expect(calls).toEqual([]);
+    expect(s.inferenceTargets).toEqual([]);
+    status.containerStatuses = [{ ready: true }];
+    await expect(s.snapshot()).rejects.toThrow();
+    expect(s.inferenceTargets.map((t) => t.pod)).toEqual(["vllm-0"]);
+  });
+
+  it("retries a failed probe after a short wait but remembers a 404 for long", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-26T10:00:00Z"));
+      const flaky = pod({
+        ns: "a",
+        name: "flaky",
+        phase: "Running",
+        node: "n",
+        limits: { "nvidia.com/gpu": "1" },
+        ports: [8000],
+      });
+      const nometrics = pod({
+        ns: "a",
+        name: "nometrics",
+        phase: "Running",
+        node: "n",
+        limits: { "nvidia.com/gpu": "1" },
+        ports: [8000],
+      });
+      const calls: string[] = [];
+      const s = new GpuScraper({
+        clusterId: () => "c1",
+        listPods: async () => [flaky, nometrics] as never,
+        listServices: async () => [],
+        fetchText: async (_c, path) => {
+          calls.push(path);
+          throw new Error(path.includes("flaky") ? "connect ECONNREFUSED" : "HTTP 404 Not Found for /api-kube/...");
+        },
+      });
+      const probedAt = async (min: number) => {
+        vi.setSystemTime(new Date(Date.parse("2026-09-26T10:00:00Z") + min * 60_000));
+        calls.length = 0;
+        await expect(s.snapshot()).rejects.toThrow();
+        return ["flaky", "nometrics"].filter((n) => calls.some((c) => c.includes(`/${n}:8000/`)));
+      };
+      expect(await probedAt(0)).toEqual(["flaky", "nometrics"]);
+      expect(await probedAt(1)).toEqual([]);
+      expect(await probedAt(3)).toEqual(["flaky"]); // refused: retried after 2 min
+      expect(await probedAt(11)).toEqual(["flaky", "nometrics"]); // 404: after 10 min
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

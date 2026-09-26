@@ -541,7 +541,8 @@ export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string }
   let level: HealthLevel = "ok";
   if ((d.lastXid ?? 0) > 0) {
     const x = xidInfo(d.lastXid as number);
-    issues.push(`XID ${d.lastXid}: ${x.meaning}`);
+    // DCGM keeps the code of the LAST XID seen; it can be long past, so say so.
+    issues.push(`last XID ${d.lastXid}: ${x.meaning}`);
     // Application-caused XIDs (13, 31, 43, 45) are the workload's fault; the GPU itself is usually fine.
     if (x.application) {
       if (level === "ok") level = "warn";
@@ -565,9 +566,8 @@ export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string }
     if (level === "ok") level = "warn";
   }
   if (issues.length > 0) return { level, text: issues.join(", ") };
-  const known = [d.lastXid, d.eccDbe, d.rowRemapFailure, d.uncorrectableRemappedRows, d.throttleMask].some(
-    (v) => v !== undefined,
-  );
+  // Throttle state is not hardware health: a device exporting only the throttle bitmask stays "not exported".
+  const known = [d.lastXid, d.eccDbe, d.rowRemapFailure, d.uncorrectableRemappedRows].some((v) => v !== undefined);
   return known ? { level: "ok", text: "OK" } : { level: "unknown", text: "not exported" };
 }
 

@@ -89,7 +89,15 @@ export interface InferenceScrape extends InferenceTarget {
   error?: string;
 }
 
+/** A definite "no" (a /metrics without engine metrics, or 404) is remembered longer than a failed probe. */
 const NOT_INFERENCE_TTL_MS = 10 * 60_000;
+const PROBE_FAILED_RETRY_MS = 2 * 60_000;
+
+/** Containers not ready yet (vLLM loads its model for minutes after the pod is Running): probe later, remember nothing. */
+function containersReady(pod: Pod): boolean {
+  const cs = pod.status?.containerStatuses;
+  return !cs || cs.every((c) => c.ready);
+}
 
 function looksGpuRelated(pod: Pod): boolean {
   const hay = [
@@ -364,7 +372,7 @@ export class GpuScraper {
             next.push(hit);
             return;
           }
-          if (this.notInference.has(key)) return;
+          if (this.notInference.has(key) || !containersReady(p)) return;
           const port = inferencePort(p);
           if (port <= 0) return;
           try {
@@ -375,10 +383,14 @@ export class GpuScraper {
               next.push({ namespace: p.getNs(), pod: p.getName(), node: p.getNodeName() ?? "", port, engine });
               return;
             }
-          } catch {
-            /* not serving /metrics there */
+            this.notInference.set(key, now + NOT_INFERENCE_TTL_MS);
+          } catch (e) {
+            // 404: nothing at /metrics, a definite no. Anything else (refused, timeout, 5xx): try again soon.
+            this.notInference.set(
+              key,
+              now + (/\b404\b/.test(describe(e)) ? NOT_INFERENCE_TTL_MS : PROBE_FAILED_RETRY_MS),
+            );
           }
-          this.notInference.set(key, now + NOT_INFERENCE_TTL_MS);
         }),
     );
     this.inferenceTargets = next.sort((a, b) => (`${a.namespace}/${a.pod}` < `${b.namespace}/${b.pod}` ? -1 : 1));

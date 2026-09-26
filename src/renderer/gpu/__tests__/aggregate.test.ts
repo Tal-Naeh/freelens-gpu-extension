@@ -274,7 +274,7 @@ describe("device health", () => {
     );
     const h = sortDevices(aggregateDevicesDcgm(f, "n")).map((d) => deviceHealth(d));
     expect(h).toEqual([
-      { level: "bad", text: "XID 79: GPU has fallen off the bus" },
+      { level: "bad", text: "last XID 79: GPU has fallen off the bus" },
       { level: "bad", text: "2 uncorrectable ECC" },
       { level: "bad", text: "row remap failed" },
       { level: "warn", text: "3 rows remapped (reset pending)" },
@@ -302,7 +302,7 @@ describe("node health", () => {
       nodeHealth([dev("0", { lastXid: 0 }), dev("1", { lastXid: 79 }), dev("2", { uncorrectableRemappedRows: 1 })]),
     ).toEqual({
       level: "bad",
-      text: "GPU 1 XID 79: GPU has fallen off the bus, GPU 2 1 rows remapped (reset pending)",
+      text: "GPU 1 last XID 79: GPU has fallen off the bus, GPU 2 1 rows remapped (reset pending)",
     });
     expect(nodeHealth([dev("0", { uncorrectableRemappedRows: 3 })]).level).toBe("warn");
   });
@@ -327,10 +327,13 @@ describe("XID meanings and throttle reasons", () => {
   it("treats application-caused XIDs as warnings, hardware ones as bad", () => {
     expect(deviceHealth(dev({ lastXid: 31 }))).toEqual({
       level: "warn",
-      text: "XID 31: GPU memory page fault (usually an application fault)",
+      text: "last XID 31: GPU memory page fault (usually an application fault)",
     });
     expect(deviceHealth(dev({ lastXid: 48 })).level).toBe("bad");
-    expect(deviceHealth(dev({ lastXid: 999 }))).toEqual({ level: "bad", text: "XID 999: see NVIDIA's XID catalogue" });
+    expect(deviceHealth(dev({ lastXid: 999 }))).toEqual({
+      level: "bad",
+      text: "last XID 999: see NVIDIA's XID catalogue",
+    });
   });
   it("decodes throttle reasons; a software power cap alone is not a problem", () => {
     // 0x40 hw thermal | 0x80 power brake | 0x1 idle (ignored)
@@ -338,7 +341,8 @@ describe("XID meanings and throttle reasons", () => {
       level: "warn",
       text: "throttled: hardware thermal slowdown, throttled: hardware power brake",
     });
-    expect(deviceHealth(dev({ throttleMask: 0x4 }))).toEqual({ level: "ok", text: "OK" });
+    // throttle state alone is not health data: no reassuring OK
+    expect(deviceHealth(dev({ throttleMask: 0x4 }))).toEqual({ level: "unknown", text: "not exported" });
   });
   it("reads both DCGM names of the throttle bitmask", () => {
     const f = parsePrometheusText(
