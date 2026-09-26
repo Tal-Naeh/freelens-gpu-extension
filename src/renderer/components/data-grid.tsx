@@ -1,4 +1,5 @@
 import React from "react";
+import { openDetails } from "./links";
 
 /**
  * Generic sortable / resizable grid rendered as CSS grid (the host app's
@@ -25,6 +26,8 @@ export interface Column<T> {
    * Omit for columns whose values are unique or continuous (pod names, percentages).
    */
   groupOf?: (row: T) => string;
+  /** Kube selfLink for the object in this cell; the cell text becomes a link that opens its details panel. */
+  link?: (row: T) => string | undefined;
 }
 
 export interface DataGridProps<T> {
@@ -197,7 +200,24 @@ export function DataGrid<T>({ id, columns, rows, rowKey, defaultSort, groupOf, e
                   className={`gpuext-cell ellipsis${c.num ? " num gpuext-mono" : ""}${c.className ? ` ${c.className}` : ""}`}
                   title={c.title_ ? c.title_(r) : text}
                 >
-                  {c.render ? c.render(r) : text}
+                  {(() => {
+                    const content = c.render ? c.render(r) : text;
+                    const href = c.link?.(r);
+                    return href ? (
+                      <button
+                        type="button"
+                        className="gpuext-link"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetails(href);
+                        }}
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      content
+                    );
+                  })()}
                 </div>
               );
             })}

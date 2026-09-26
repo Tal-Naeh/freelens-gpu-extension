@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { namespaceLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { UtilBar } from "../components/util-bar";
@@ -16,7 +17,14 @@ const resourcesText = (r: NamespaceRow) =>
     .join(", ");
 
 const NS_COLUMNS: Column<NamespaceRow>[] = [
-  { key: "namespace", title: "Namespace", width: 200, min: 80, value: (r) => r.namespace },
+  {
+    key: "namespace",
+    link: (r) => namespaceLink(r.namespace),
+    title: "Namespace",
+    width: 200,
+    min: 80,
+    value: (r) => r.namespace,
+  },
   {
     key: "requested",
     title: "Requested",

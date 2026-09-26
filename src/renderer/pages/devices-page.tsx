@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { nodeLink, podRefLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { UtilBar } from "../components/util-bar";
@@ -19,7 +20,15 @@ const gpuKey = (d: GpuDevice) =>
 const tempClass = (t?: number) => (t === undefined ? "" : t >= 85 ? "gpuext-hot" : t >= 75 ? "gpuext-warn" : "");
 
 export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
-  { key: "node", title: "Node", width: 220, min: 80, value: (d) => d.node, groupOf: (d) => d.node },
+  {
+    key: "node",
+    link: (d) => nodeLink(d.node),
+    title: "Node",
+    width: 220,
+    min: 80,
+    value: (d) => d.node,
+    groupOf: (d) => d.node,
+  },
   {
     key: "gpu",
     title: "GPU",
@@ -157,6 +166,7 @@ export const DEVICE_COLUMNS: Column<GpuDevice>[] = [
   },
   {
     key: "podlist",
+    link: (d) => (d.pods.length === 1 ? podRefLink(d.pods[0]) : undefined),
     title: "Pod names",
     width: 360,
     min: 100,

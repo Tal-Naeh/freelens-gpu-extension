@@ -2,6 +2,7 @@ import React from "react";
 import { gpuSortKey, physicalGPUGroup } from "../gpu/aggregate";
 import { isFallback, type PodGPU, vramTotalMiB } from "../gpu/types";
 import { type Column, DataGrid } from "./data-grid";
+import { namespaceLink, nodeLink, podLink } from "./links";
 import { fmtMiB } from "./styles";
 import { UtilBar } from "./util-bar";
 
@@ -29,9 +30,18 @@ const GpuBadges = ({ r }: { r: PodGPU }) =>
 const hintOf = (r: PodGPU) => (isFallback(r) && r.hintPods && r.hintPods.length > 0 ? r.hintPods.join(", ") : "");
 
 export const POD_COLUMNS: Column<PodGPU>[] = [
-  { key: "namespace", title: "Namespace", width: 130, min: 60, value: (r) => r.namespace, groupOf: (r) => r.namespace },
+  {
+    key: "namespace",
+    link: (r) => (r.gpuIndex ? undefined : namespaceLink(r.namespace)),
+    title: "Namespace",
+    width: 130,
+    min: 60,
+    value: (r) => r.namespace,
+    groupOf: (r) => r.namespace,
+  },
   {
     key: "pod",
+    link: (r) => (r.gpuIndex ? undefined : podLink(r.namespace, r.pod)),
     title: "Pod",
     width: 360,
     min: 80,
@@ -46,6 +56,7 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
   },
   {
     key: "node",
+    link: (r) => nodeLink(r.node),
     title: "Node",
     width: 200,
     min: 60,

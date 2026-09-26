@@ -49,6 +49,7 @@ describe("GpuScraper pod state", () => {
     const s = new GpuScraper({
       clusterId: () => "c1",
       listPods: async () => pods as never,
+      listServices: async () => [],
       fetchText: async () => "",
     });
     await expect(s.snapshot()).rejects.toThrow(/No GPU metrics exporter found/);
@@ -65,5 +66,129 @@ describe("GpuScraper pod state", () => {
     expect(ps?.requestedByNode.n1).toMatchObject({ gpus: 2, byResource: { "nvidia.com/mig-1g.10gb": 2 } });
     expect(ps?.requestedByNamespace.ml.pods).toEqual(["ml/run", "ml/starting"]);
     expect(ps?.requestedByNamespace.web).toBeUndefined();
+  });
+});
+
+describe("GpuScraper discovery sources", () => {
+  const promJson = JSON.stringify({
+    status: "success",
+    data: {
+      result: [
+        {
+          metric: {
+            __name__: "DCGM_FI_DEV_FB_USED",
+            gpu: "0",
+            UUID: "GPU-a",
+            exported_namespace: "ml",
+            exported_pod: "vllm-0",
+            namespace: "gpu-operator",
+            pod: "nvidia-dcgm-exporter-x",
+            Hostname: "n1",
+          },
+          value: [0, "4096"],
+        },
+        { metric: { __name__: "DCGM_FI_DEV_FB_FREE", gpu: "0", UUID: "GPU-a", Hostname: "n1" }, value: [0, "4096"] },
+      ],
+    },
+  });
+
+  it("falls back to a Prometheus query API when no exporter pod exists", async () => {
+    const paths: string[] = [];
+    const s = new GpuScraper({
+      clusterId: () => "c1",
+      listPods: async () => [],
+      listServices: async () => [
+        { namespace: "monitoring", name: "prometheus-server", ports: [{ name: "http", port: 80 }] },
+      ],
+      fetchText: async (_c, path) => {
+        paths.push(path);
+        if (path.includes("count("))
+          return JSON.stringify({ status: "success", data: { result: [{ metric: {}, value: [0, "2"] }] } });
+        return promJson;
+      },
+    });
+    const snap = await s.snapshot();
+    expect(snap.exporters).toEqual([
+      expect.objectContaining({ name: "prometheus-server", kind: "dcgm", via: "prometheus" }),
+    ]);
+    expect(snap.rows).toEqual([
+      expect.objectContaining({ namespace: "ml", pod: "vllm-0", node: "n1", vramUsedMiB: 4096 }),
+    ]);
+    expect(snap.gpus).toHaveLength(1);
+    expect(
+      paths.every((p) =>
+        p.startsWith("/api/v1/namespaces/monitoring/services/prometheus-server:80/proxy/api/v1/query"),
+      ),
+    ).toBe(true);
+  });
+
+  it("probes a pinned pod that auto-discovery would skip, at the pinned port", async () => {
+    const odd = pod({ ns: "obs", name: "metrics-agent-7f9c", phase: "Running", node: "n1" }); // no gpu/dcgm keyword
+    const probed: string[] = [];
+    const s = new GpuScraper({
+      clusterId: () => "c1",
+      listPods: async () => [odd] as never,
+      listServices: async () => [],
+      fetchText: async (_c, path) => {
+        probed.push(path);
+        return 'DCGM_FI_DEV_FB_USED{gpu="0",UUID="GPU-a",namespace="ml",pod="p"} 100\n';
+      },
+    });
+    s.pins = [{ kind: "pod", namespace: "obs", prefix: "metrics-agent", port: 9500 }];
+    const snap = await s.snapshot();
+    expect(probed[0]).toBe("/api/v1/namespaces/obs/pods/metrics-agent-7f9c:9500/proxy/metrics");
+    expect(snap.exporters[0]).toMatchObject({ name: "metrics-agent-7f9c", port: 9500, kind: "dcgm" });
+  });
+});
+
+describe("Prometheus fallback lifecycle", () => {
+  const countOk = JSON.stringify({ status: "success", data: { result: [{ metric: {}, value: [0, "1"] }] } });
+  const series = JSON.stringify({
+    status: "success",
+    data: {
+      result: [{ metric: { __name__: "DCGM_FI_DEV_FB_USED", gpu: "0", UUID: "GPU-a", node: "n1" }, value: [0, "1"] }],
+    },
+  });
+  const make = (fetchText: (path: string) => Promise<string>) =>
+    new GpuScraper({
+      clusterId: () => "c1",
+      listPods: async () => [],
+      listServices: async () => [{ namespace: "mon", name: "prometheus-server", ports: [{ name: "http", port: 80 }] }],
+      fetchText: async (_c, path) => fetchText(path),
+    });
+
+  it("probes once, then reuses the chosen query API on later ticks", async () => {
+    let probes = 0;
+    const s = make(async (p) => {
+      if (p.includes("count(")) {
+        probes++;
+        return countOk;
+      }
+      return series;
+    });
+    await s.snapshot();
+    await s.snapshot();
+    await s.snapshot();
+    expect(probes).toBe(1);
+    await s.snapshot(true); // Refresh re-probes
+    expect(probes).toBe(2);
+  });
+
+  it("a failing query gives the explanatory error, forgets the target, and re-probes next tick", async () => {
+    let probes = 0;
+    let fail = true;
+    const s = make(async (p) => {
+      if (p.includes("count(")) {
+        probes++;
+        return countOk;
+      }
+      if (fail) throw new Error("HTTP 503 Service Unavailable");
+      return series;
+    });
+    await expect(s.snapshot()).rejects.toThrow(/No GPU metrics exporter found[\s\S]*query failed: HTTP 503/);
+    fail = false;
+    const snap = await s.snapshot();
+    expect(probes).toBe(2);
+    expect(snap.gpus[0]).toMatchObject({ node: "n1" });
   });
 });

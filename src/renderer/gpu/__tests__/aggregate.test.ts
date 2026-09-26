@@ -10,6 +10,7 @@ import {
   deviceHealth,
   extractDcgmSamples,
   gpuResourceCount,
+  nodeHealth,
   podsPerDevice,
   sharedWith,
   sortDevices,
@@ -19,7 +20,7 @@ import {
 } from "../aggregate";
 import { classifyMetrics, parsePrometheusText } from "../prom";
 
-import type { PodGPU } from "../types";
+import type { GpuDevice, PodGPU } from "../types";
 
 const fixture = (name: string) => readFileSync(join(__dirname, "fixtures", name), "utf8");
 const fams = (name: string) => parsePrometheusText(fixture(name));
@@ -278,5 +279,35 @@ describe("device health", () => {
       { level: "warn", text: "3 rows remapped (reset pending)" },
       { level: "ok", text: "OK" },
     ]);
+  });
+});
+
+describe("node health", () => {
+  const dev = (gpu: string, over: Partial<GpuDevice> = {}): GpuDevice => ({
+    node: "n",
+    gpu,
+    utilPct: 0,
+    vramUsedMiB: 0,
+    vramTotalMiB: 0,
+    powerWatts: 0,
+    pods: [],
+    ...over,
+  });
+  it("is bad when the device plugin withdrew devices, even without health gauges", () => {
+    expect(nodeHealth([dev("0")], 2)).toEqual({ level: "bad", text: "2 withdrawn" });
+  });
+  it("takes the worst device and lists what is wrong", () => {
+    expect(
+      nodeHealth([dev("0", { lastXid: 0 }), dev("1", { lastXid: 79 }), dev("2", { uncorrectableRemappedRows: 1 })]),
+    ).toEqual({
+      level: "bad",
+      text: "GPU 1 XID 79, GPU 2 1 rows remapped (reset pending)",
+    });
+    expect(nodeHealth([dev("0", { uncorrectableRemappedRows: 3 })]).level).toBe("warn");
+  });
+  it("real capture: OK from the one reporting GPU, and says how many report", () => {
+    const devs = aggregateDevicesDcgm(fams("dgx_a100_mig_mixed.prom"), "dgx-1");
+    expect(nodeHealth(devs)).toEqual({ level: "ok", text: "OK (1 of 48 report)" });
+    expect(nodeHealth(devs.filter((d) => d.migProfile))).toEqual({ level: "unknown", text: "not exported" });
   });
 });

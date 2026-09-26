@@ -46,6 +46,17 @@ const HEALTH_DCGM = [
 
 const DEVICE_DCGM = [...WANTED_DCGM, "DCGM_FI_DEV_GPU_TEMP", "DCGM_FI_DEV_FB_TOTAL", ...PROF_DCGM, ...HEALTH_DCGM];
 
+/** Every metric family the extension reads, per exporter kind (the Prometheus fallback queries exactly these). */
+export const DCGM_METRICS: readonly string[] = DEVICE_DCGM;
+export const ENRICHER_METRICS: readonly string[] = [
+  "gpu_process_memory_bytes",
+  "gpu_process_utilization_percent",
+  "gpu_total_memory_bytes",
+  "gpu_total_utilization_percent",
+  "gpu_power_usage_watts",
+  "gpu_temperature_celsius",
+];
+
 /** DCGM: flatten wanted families into (ns, pod, gpu, node, metric, value). */
 export function extractDcgmSamples(fams: Families, exporterNode: string): FlatSample[] {
   const out: FlatSample[] = [];
@@ -538,6 +549,24 @@ export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string }
   if (issues.length > 0) return { level, text: issues.join(", ") };
   const known = [d.lastXid, d.eccDbe, d.rowRemapFailure, d.uncorrectableRemappedRows].some((v) => v !== undefined);
   return known ? { level: "ok", text: "OK" } : { level: "unknown", text: "not exported" };
+}
+
+/**
+ * A node's health: its worst device, and bad whenever the device plugin has withdrawn devices
+ * (capacity > allocatable) — that alone means hardware trouble even when no health gauge is exported.
+ */
+export function nodeHealth(devs: GpuDevice[], withdrawn = 0): { level: HealthLevel; text: string } {
+  const per = devs.map((d) => ({ d, h: deviceHealth(d) }));
+  const bad = per.filter((x) => x.h.level === "bad");
+  const warn = per.filter((x) => x.h.level === "warn");
+  const parts: string[] = [];
+  if (withdrawn > 0) parts.push(`${withdrawn} withdrawn`);
+  for (const { d, h } of [...bad, ...warn]) parts.push(`GPU ${d.gpu} ${h.text}`);
+  if (withdrawn > 0 || bad.length > 0) return { level: "bad", text: parts.join(", ") };
+  if (warn.length > 0) return { level: "warn", text: parts.join(", ") };
+  const reporting = per.filter((x) => x.h.level === "ok").length;
+  if (reporting === 0) return { level: "unknown", text: "not exported" };
+  return { level: "ok", text: reporting === devs.length ? "OK" : `OK (${reporting} of ${devs.length} report)` };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import React from "react";
-import { deviceHealth, totalPowerW } from "../gpu/aggregate";
+import { deviceHealth, nodeHealth, totalPowerW } from "../gpu/aggregate";
 import { gpuStore } from "../gpu/store";
 import { GpuTable } from "./gpu-table";
 import { fmtMiB, gpuStyles } from "./styles";
@@ -19,7 +19,18 @@ export const NodeGpuDetails = observer(({ object: node }: Props) => {
   return (
     <div className="gpuext-details">
       <style>{gpuStyles}</style>
-      <DrawerTitle>GPU</DrawerTitle>
+      <DrawerTitle>
+        GPU {(() => {
+          const withdrawn = gpuStore.allocation.find((a) => a.node === node.getName())?.unhealthy ?? 0;
+          const h = nodeHealth(devs, withdrawn);
+          const cls = { bad: "gpuext-hot", warn: "gpuext-warn", ok: "gpuext-ok", unknown: "gpuext-dim" }[h.level];
+          return (
+            <span className={`gpuext-badge ${cls}`} title={h.text}>
+              {h.level === "unknown" ? "health not exported" : h.level === "ok" ? "healthy" : h.text}
+            </span>
+          );
+        })()}
+      </DrawerTitle>
       {devs.length > 0 && (
         <div className="gpuext-hint">
           {devs.length} device{devs.length === 1 ? "" : "s"}
