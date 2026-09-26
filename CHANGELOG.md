@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1
+
+- Fix: pods on MIG slices were each charged their whole card's power (DCGM reports the card's draw on every slice),
+  so the Pods view showed ~104 W per 1g pod and the Namespaces view summed to several times the node's real draw
+  (~3,000 W vs 804 W on an 8× A100 node). Pod rows now get each slice's share of the card's power, weighted by the
+  slice's compute size (1g of a fully partitioned A100 = 1/7, 3g = 3/7). The GPUs view keeps the card draw per slice,
+  with a tooltip saying so.
+
 ## 0.7.0
 
 - **Inference** view: vLLM servers next to their GPUs — model, KV cache, running / waiting requests, generated tokens/s,
