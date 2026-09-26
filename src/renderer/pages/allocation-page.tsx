@@ -1,8 +1,10 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { nodeLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { UtilBar } from "../components/util-bar";
+import { nodeHealth } from "../gpu/aggregate";
 import { gpuStore } from "../gpu/store";
 
 import type { Renderer } from "@freelensapp/extensions";
@@ -10,7 +12,7 @@ import type { Renderer } from "@freelensapp/extensions";
 import type { AllocationRow } from "../gpu/types";
 
 const ALLOC_COLUMNS: Column<AllocationRow>[] = [
-  { key: "node", title: "Node", width: 240, min: 80, value: (r) => r.node },
+  { key: "node", link: (r) => nodeLink(r.node), title: "Node", width: 240, min: 80, value: (r) => r.node },
   {
     key: "type",
     title: "GPU type",
@@ -30,6 +32,26 @@ const ALLOC_COLUMNS: Column<AllocationRow>[] = [
     title_: () => "nvidia.com/gpu in node status.capacity",
   },
   { key: "allocatable", title: "Allocatable", width: 100, min: 60, num: true, value: (r) => r.allocatable },
+  {
+    key: "health",
+    title: "Health",
+    width: 170,
+    min: 70,
+    value: (r) =>
+      ({ bad: 0, warn: 1, unknown: 2, ok: 3 })[nodeHealth(gpuStore.devicesForNode(r.node), r.unhealthy).level],
+    render: (r) => {
+      const h = nodeHealth(gpuStore.devicesForNode(r.node), r.unhealthy);
+      const icon = { bad: "●", warn: "●", ok: "●", unknown: "○" }[h.level];
+      const cls = { bad: "gpuext-hot", warn: "gpuext-warn", ok: "gpuext-ok", unknown: "gpuext-dim" }[h.level];
+      return (
+        <span className={cls}>
+          {icon} {h.text}
+        </span>
+      );
+    },
+    title_: (r) => nodeHealth(gpuStore.devicesForNode(r.node), r.unhealthy).text,
+    groupOf: (r) => nodeHealth(gpuStore.devicesForNode(r.node), r.unhealthy).level,
+  },
   {
     key: "unhealthy",
     title: "Unhealthy",

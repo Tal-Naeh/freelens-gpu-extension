@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { namespaceLink, nodeLink, podLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { gpuStore, IDLE_MIN_VRAM_MIB, IDLE_UTIL_PCT } from "../gpu/store";
@@ -11,10 +12,19 @@ import type { IdleRow } from "../gpu/types";
 const fmtMin = (m: number) => (m < 1 ? "<1 min" : m < 60 ? `${m.toFixed(0)} min` : `${(m / 60).toFixed(1)} h`);
 
 const IDLE_COLUMNS: Column<IdleRow>[] = [
-  { key: "namespace", title: "Namespace", width: 130, min: 60, value: (r) => r.namespace, groupOf: (r) => r.namespace },
-  { key: "pod", title: "Pod", width: 360, min: 80, value: (r) => r.pod },
+  {
+    key: "namespace",
+    link: (r) => namespaceLink(r.namespace),
+    title: "Namespace",
+    width: 130,
+    min: 60,
+    value: (r) => r.namespace,
+    groupOf: (r) => r.namespace,
+  },
+  { key: "pod", link: (r) => podLink(r.namespace, r.pod), title: "Pod", width: 360, min: 80, value: (r) => r.pod },
   {
     key: "node",
+    link: (r) => nodeLink(r.node),
     title: "Node",
     width: 200,
     min: 60,
