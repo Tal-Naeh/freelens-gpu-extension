@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+- **Inference** view: vLLM servers next to their GPUs — model, KV cache, running / waiting requests, generated tokens/s,
+  recent time to first token, prefix-cache hit rate, new preemptions and errors, and a status (*saturated* when the KV
+  cache is ≥ 90% with a queue). Found among Running pods that request a GPU or look like an inference server, by the
+  content of their `/metrics`; works without any GPU exporter. Supports vLLM V1 (`kv_cache_usage_perc`) and earlier
+  (`gpu_cache_usage_perc`); servers still loading their model are picked up once ready. Idle & waste marks vLLM pods
+  (they reserve most VRAM by design) and Copy Markdown includes the servers.
+- **XID meanings**: health explains the code (79 = fallen off the bus, 48 = double-bit ECC, …) and says "last XID",
+  since DCGM keeps the last code seen. Application-caused XIDs (13, 31, 43, 45) are warnings, not hardware failures.
+- **Throttle reasons**: hardware slowdown, thermal slowdown and power brake from DCGM's clock-event bitmask show as
+  warnings; a software power cap is configuration and not flagged; throttle data alone never counts as "healthy".
+- **Pod-level health**: the Pods view marks pods whose GPU (for a MIG slice, its physical card) is unhealthy, and the Pod
+  drawer spells it out.
+
 ## 0.6.0
 
 - **Open from any table**: pod, node and namespace names in every GPU view open Freelens' own details panel.
