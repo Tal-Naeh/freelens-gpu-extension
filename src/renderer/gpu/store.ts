@@ -20,6 +20,7 @@ import { aggregateNamespaces, migFree, type NamespaceRow } from "./namespaces";
 import { explainPending, type NodeGpuResources, type PendingGpuPod } from "./pending";
 import { GpuScraper, type ProbeResult } from "./scraper";
 
+import type { ReportInput } from "./report";
 import type { AllocationRow, GpuDevice, HistoryPoint, IdleRow, PodGPU, PodState, Snapshot } from "./types";
 
 export const DEFAULT_INTERVAL_MS = 20_000;
@@ -196,6 +197,22 @@ export class GpuStore {
       }
     }
     return [...byNode.values()].sort((x, y) => (x.node < y.node ? -1 : 1));
+  }
+
+  /** Everything the "Copy snapshot" buttons export. */
+  reportInput(extra: { cluster?: string; extensionVersion?: string } = {}): ReportInput {
+    return {
+      ...extra,
+      scrapedAt: this.snapshot?.scrapedAt,
+      error: this.error,
+      exporters: this.snapshot?.exporters ?? [],
+      devices: this.devices,
+      pods: this.rows,
+      allocation: this.allocation,
+      namespaces: this.namespaceRows,
+      idle: this.idleRows,
+      pending: this.pendingRows,
+    };
   }
 
   get isStale(): boolean {

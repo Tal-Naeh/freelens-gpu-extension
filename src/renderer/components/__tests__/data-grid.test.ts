@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { activeGrouper, type Column } from "../data-grid";
+import { describe, expect, it, vi } from "vitest";
+
+// data-grid links cells to Freelens' details panel; the host API does not exist outside Freelens.
+vi.mock("@freelensapp/extensions", () => ({ Renderer: { Navigation: { showDetails() {} } } }));
+
+const { activeGrouper } = await import("../data-grid");
+
+import type { Column } from "../data-grid";
 
 interface Row {
   ns: string;

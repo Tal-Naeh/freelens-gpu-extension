@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { nodeLink, podLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { gpuStore } from "../gpu/store";
 
@@ -10,7 +11,7 @@ import type { ExporterScrape } from "../gpu/types";
 
 const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
   { key: "ns", title: "Namespace", width: 150, min: 60, value: (e) => e.namespace, groupOf: (e) => e.namespace },
-  { key: "name", title: "Pod", width: 320, min: 80, value: (e) => e.name },
+  { key: "name", link: (e) => podLink(e.namespace, e.name), title: "Pod", width: 320, min: 80, value: (e) => e.name },
   { key: "port", title: "Port", width: 70, min: 50, num: true, value: (e) => e.port },
   {
     key: "kind",
@@ -22,6 +23,7 @@ const EXPORTER_COLUMNS: Column<ExporterScrape>[] = [
   },
   {
     key: "node",
+    link: (e) => nodeLink(e.nodeName),
     title: "Node",
     width: 220,
     min: 80,

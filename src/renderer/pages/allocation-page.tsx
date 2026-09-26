@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { nodeLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { fmtMiB } from "../components/styles";
 import { UtilBar } from "../components/util-bar";
@@ -10,7 +11,7 @@ import type { Renderer } from "@freelensapp/extensions";
 import type { AllocationRow } from "../gpu/types";
 
 const ALLOC_COLUMNS: Column<AllocationRow>[] = [
-  { key: "node", title: "Node", width: 240, min: 80, value: (r) => r.node },
+  { key: "node", link: (r) => nodeLink(r.node), title: "Node", width: 240, min: 80, value: (r) => r.node },
   {
     key: "type",
     title: "GPU type",

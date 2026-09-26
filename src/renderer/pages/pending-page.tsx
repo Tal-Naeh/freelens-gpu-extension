@@ -1,5 +1,6 @@
 import { observer } from "mobx-react";
 import { type Column, DataGrid } from "../components/data-grid";
+import { namespaceLink, podLink } from "../components/links";
 import { PageShell } from "../components/page-shell";
 import { gpuStore, type PendingRow } from "../gpu/store";
 
@@ -20,8 +21,16 @@ const requestsText = (r: PendingRow) =>
     .join(", ");
 
 const PENDING_COLUMNS: Column<PendingRow>[] = [
-  { key: "namespace", title: "Namespace", width: 140, min: 60, value: (r) => r.namespace, groupOf: (r) => r.namespace },
-  { key: "pod", title: "Pod", width: 320, min: 80, value: (r) => r.pod },
+  {
+    key: "namespace",
+    link: (r) => namespaceLink(r.namespace),
+    title: "Namespace",
+    width: 140,
+    min: 60,
+    value: (r) => r.namespace,
+    groupOf: (r) => r.namespace,
+  },
+  { key: "pod", link: (r) => podLink(r.namespace, r.pod), title: "Pod", width: 320, min: 80, value: (r) => r.pod },
   {
     key: "age",
     title: "Waiting",
