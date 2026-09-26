@@ -552,6 +552,24 @@ export function deviceHealth(d: GpuDevice): { level: HealthLevel; text: string }
 }
 
 /**
+ * A node's health: its worst device, and bad whenever the device plugin has withdrawn devices
+ * (capacity > allocatable) — that alone means hardware trouble even when no health gauge is exported.
+ */
+export function nodeHealth(devs: GpuDevice[], withdrawn = 0): { level: HealthLevel; text: string } {
+  const per = devs.map((d) => ({ d, h: deviceHealth(d) }));
+  const bad = per.filter((x) => x.h.level === "bad");
+  const warn = per.filter((x) => x.h.level === "warn");
+  const parts: string[] = [];
+  if (withdrawn > 0) parts.push(`${withdrawn} withdrawn`);
+  for (const { d, h } of [...bad, ...warn]) parts.push(`GPU ${d.gpu} ${h.text}`);
+  if (withdrawn > 0 || bad.length > 0) return { level: "bad", text: parts.join(", ") };
+  if (warn.length > 0) return { level: "warn", text: parts.join(", ") };
+  const reporting = per.filter((x) => x.h.level === "ok").length;
+  if (reporting === 0) return { level: "unknown", text: "not exported" };
+  return { level: "ok", text: reporting === devs.length ? "OK" : `OK (${reporting} of ${devs.length} report)` };
+}
+
+/**
  * How many workload pods share each device, keyed "node/gpu". A pod row whose
  * GPU is shared carries device-level numbers (dcgm-exporter reports the whole
  * device's util/power on every pod that uses it), not that pod's share.
