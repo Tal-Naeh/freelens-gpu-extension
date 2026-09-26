@@ -14,9 +14,17 @@ export interface GpuTableProps {
   hideNode?: boolean;
 }
 
+const HealthDot = ({ r }: { r: PodGPU }) =>
+  r.health && r.health.level !== "ok" ? (
+    <span className={r.health.level === "bad" ? "gpuext-hot" : "gpuext-warn"} title={r.health.text}>
+      ●{" "}
+    </span>
+  ) : null;
+
 const GpuBadges = ({ r }: { r: PodGPU }) =>
   r.gpus.length > 0 ? (
     <>
+      <HealthDot r={r} />
       {r.gpus.map((g) => (
         <span key={g} className="gpuext-badge gpuext-mono">
           {g}
@@ -71,7 +79,8 @@ export const POD_COLUMNS: Column<PodGPU>[] = [
     min: 50,
     value: (r) => gpuSortKey(r),
     groupOf: physicalGPUGroup,
-    title_: (r) => r.gpus.join(", "),
+    title_: (r) =>
+      r.health && r.health.level !== "ok" ? `${r.gpus.join(", ")} · ${r.health.text}` : r.gpus.join(", "),
     render: (r) => <GpuBadges r={r} />,
   },
   {

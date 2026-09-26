@@ -11,6 +11,7 @@ import {
   gpuResourceCount,
   isGpuResourceName,
   podsPerDevice,
+  rowHealth,
   sharedWith,
   sortDevices,
   sortRows,
@@ -76,6 +77,7 @@ export class GpuStore {
       ...r,
       sharedWith: sharedWith(r, perDevice),
       timeSliced: r.source === "dcgm" && !r.gpuIndex && (replicas.get(r.node) ?? 1) > 1,
+      health: rowHealth(r, this.snapshot?.gpus ?? []),
     }));
   }
 
