@@ -1,5 +1,13 @@
 # Freelens GPU Extension
 
+> [!IMPORTANT]
+> **This repository has moved to [freelensapp/freelens-gpu-extension](https://github.com/freelensapp/freelens-gpu-extension)**
+> and is now part of the Freelens organisation. The npm package is now
+> [`@freelensapp/gpu-extension`](https://www.npmjs.com/package/@freelensapp/gpu-extension) (from 0.8.0);
+> `@tal-naeh/freelens-gpu-extension` is deprecated. Uninstall the old package in Freelens, then install
+> `@freelensapp/gpu-extension` from the Extensions page. Issues and pull requests go to the new repository.
+> This repository is archived and kept read-only for its history.
+
 [![npm](https://img.shields.io/npm/v/%40tal-naeh%2Ffreelens-gpu-extension)](https://www.npmjs.com/package/@tal-naeh/freelens-gpu-extension)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
